@@ -1,0 +1,18 @@
+{
+  "name": "stitch_fetch",
+  "version": "1.0.0",
+  "description": "Download Stitch screen HTML + images into Flutter assets",
+  "type": "module",
+  "main": "fetch.mjs",
+  "scripts": {
+    "fetch": "node fetch.mjs",
+    "download-urls": "node download_from_urls.mjs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/stitch-sdk": "^0.1.0"
+  }
+}
