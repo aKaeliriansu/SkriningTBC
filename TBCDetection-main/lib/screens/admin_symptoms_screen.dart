@@ -1,6 +1,6 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
-import '../models/symptom_def.dart';
+import '../data/knowledge_base.dart';
 import '../services/local_settings.dart';
 import '../services/symptom_repository.dart';
 import '../theme/app_theme.dart';
@@ -15,11 +15,10 @@ class AdminSymptomsScreen extends StatefulWidget {
 class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
   final _repo = SymptomRepository();
   final _settings = LocalSettings();
-
   final _usernameCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
 
-  List<SymptomDef> _items = [];
+  List<Map<String, dynamic>> _results = [];
   bool _isLoggedIn = false;
   bool _loading = false;
   bool _obscurePassword = true;
@@ -39,44 +38,37 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
   }
 
   Future<void> _loadSavedCredentials() async {
-    final username = await _settings.getAdminUsername();
-    final password = await _settings.getAdminPassword();
-    if (!mounted) return;
-    setState(() {
-      if (username != null) _usernameCtrl.text = username;
-      if (password != null) _passwordCtrl.text = password;
-    });
+    final u = await _settings.getAdminUsername();
+    final p = await _settings.getAdminPassword();
+    if (mounted) {
+      if (u != null) _usernameCtrl.text = u;
+      if (p != null) _passwordCtrl.text = p;
+    }
   }
-
-  Future<String> _getUrl() => _settings.getWebAppUrl();
 
   Future<void> _login() async {
     final username = _usernameCtrl.text.trim();
     final password = _passwordCtrl.text.trim();
-
-    if (username.isEmpty || password.isEmpty) {
-      setState(() => _errorMsg = 'Username dan password wajib diisi.');
+    if (username.isEmpty) {
+      setState(() => _errorMsg = 'Username wajib diisi.');
       return;
     }
-
+    if (password.isEmpty) {
+      setState(() => _errorMsg = 'Password wajib diisi.');
+      return;
+    }
     setState(() {
       _loading = true;
       _errorMsg = null;
     });
-
     try {
-      final url = await _getUrl();
-      final list = await _repo.loadAllForAdmin(
-        webAppUrl: url,
-        username: username,
-        password: password,
-      );
+      final url = await _settings.getWebAppUrl();
+      final list = await _repo.loadDiagnosaForAdmin(webAppUrl: url, password: password);
       await _settings.setAdminUsername(username);
       await _settings.setAdminPassword(password);
-
       if (!mounted) return;
       setState(() {
-        _items = list;
+        _results = list;
         _isLoggedIn = true;
         _loading = false;
       });
@@ -94,30 +86,27 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
     await _settings.setAdminPassword(null);
     setState(() {
       _isLoggedIn = false;
-      _items = [];
+      _results = [];
       _errorMsg = null;
+      _usernameCtrl.clear();
       _passwordCtrl.clear();
     });
   }
 
-  Future<void> _refreshList() async {
-    final url = await _getUrl();
-    final username = _usernameCtrl.text.trim();
-    final password = _passwordCtrl.text.trim();
-
+  Future<void> _refresh() async {
+    final url = await _settings.getWebAppUrl();
     setState(() {
       _loading = true;
       _errorMsg = null;
     });
     try {
-      final list = await _repo.loadAllForAdmin(
+      final list = await _repo.loadDiagnosaForAdmin(
         webAppUrl: url,
-        username: username,
-        password: password,
+        password: _passwordCtrl.text.trim(),
       );
       if (!mounted) return;
       setState(() {
-        _items = list;
+        _results = list;
         _loading = false;
       });
     } catch (e) {
@@ -129,247 +118,17 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
     }
   }
 
-  String _normalizeId(String raw) {
-    return raw.trim().toUpperCase().replaceAll(RegExp(r'[^A-Z0-9_]'), '');
-  }
-
-  Future<void> _openEditor({SymptomDef? existing}) async {
-    final url = await _getUrl();
-    final username = _usernameCtrl.text.trim();
-    final password = _passwordCtrl.text.trim();
-    final isNew = existing == null;
-
-    final idCtrl = TextEditingController(text: existing?.id ?? '');
-    final qCtrl = TextEditingController(text: existing?.question ?? '');
-    final hCtrl = TextEditingController(text: existing?.hint ?? '');
-    final orderCtrl = TextEditingController(
-      text: existing != null ? '${existing.sortOrder}' : '10',
-    );
-    var active = existing?.active ?? true;
-    var cfPakar = existing?.cfPakar ?? 0.5;
-
-    if (!mounted) return;
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setLocal) => AlertDialog(
-          title: Text(isNew ? 'Tambah Gejala' : 'Edit Gejala'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: idCtrl,
-                  enabled: isNew,
-                  decoration: const InputDecoration(
-                    labelText: 'Kode (contoh: KG15)',
-                    hintText: 'KG15',
-                  ),
-                  textCapitalization: TextCapitalization.characters,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: hCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Nama Gejala',
-                    hintText: 'contoh: Nyeri Sendi',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: qCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Pertanyaan skrining',
-                  ),
-                  maxLines: 3,
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'CF Pakar',
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: AppTheme.navy.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        cfPakar.toStringAsFixed(1),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          color: AppTheme.navy,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                Slider(
-                  value: cfPakar,
-                  min: 0.1,
-                  max: 1.0,
-                  divisions: 9,
-                  label: cfPakar.toStringAsFixed(1),
-                  onChanged: (v) => setLocal(() => cfPakar = v),
-                ),
-                const Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text('0.1',
-                        style: TextStyle(
-                            fontSize: 11, color: Color(0xFF94A3B8))),
-                    Text('rendah → sedang → tinggi',
-                        style: TextStyle(
-                            fontSize: 11, color: Color(0xFF94A3B8))),
-                    Text('1.0',
-                        style: TextStyle(
-                            fontSize: 11, color: Color(0xFF94A3B8))),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: orderCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Urutan tampil (angka)',
-                  ),
-                  keyboardType: TextInputType.number,
-                ),
-                const SizedBox(height: 8),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Aktif (tampil di skrining)'),
-                  value: active,
-                  onChanged: (v) => setLocal(() => active = v),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Batal'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Simpan'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (saved != true || !mounted) return;
-
-    final nid = isNew ? _normalizeId(idCtrl.text) : existing.id;
-    if (nid.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Kode gejala tidak valid')),
-      );
-      return;
-    }
-
-    final order = int.tryParse(orderCtrl.text.trim()) ?? 999;
-    final symptom = SymptomDef(
-      id: nid,
-      question: qCtrl.text.trim(),
-      hint: hCtrl.text.trim(),
-      sortOrder: order,
-      active: active,
-      cfPakar: double.parse(cfPakar.toStringAsFixed(1)),
-    );
-
-    setState(() => _loading = true);
-    try {
-      await _repo.saveSymptomAdmin(
-        webAppUrl: url,
-        username: username,
-        password: password,
-        symptom: symptom,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Tersimpan ke Spreadsheet')),
-        );
-        await _refreshList();
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _loading = false);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
-      }
-    }
-  }
-
-  Future<void> _confirmDelete(SymptomDef s) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Hapus Gejala?'),
-        content: Text(
-          'Yakin ingin menghapus "${s.hint.isNotEmpty ? s.hint : s.id}"?\n'
-          'Tindakan ini tidak dapat dibatalkan.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Batal'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFDC2626)),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Hapus'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !mounted) return;
-
-    final url = await _getUrl();
-    setState(() => _loading = true);
-    try {
-      await _repo.deleteSymptomAdmin(
-        webAppUrl: url,
-        username: _usernameCtrl.text.trim(),
-        password: _passwordCtrl.text.trim(),
-        symptomId: s.id,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${s.id} berhasil dihapus')),
-        );
-        await _refreshList();
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _loading = false);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(e.toString())));
-      }
-    }
-  }
-
-  // ── Build ──────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Admin — Kelola Gejala'),
+        title: const Text('Admin — Riwayat Diagnosa'),
         actions: _isLoggedIn
             ? [
                 IconButton(
                   tooltip: 'Refresh',
                   icon: const Icon(Icons.refresh_rounded),
-                  onPressed: _loading ? null : _refreshList,
+                  onPressed: _loading ? null : _refresh,
                 ),
                 IconButton(
                   tooltip: 'Keluar',
@@ -379,18 +138,11 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
               ]
             : null,
       ),
-      floatingActionButton: _isLoggedIn
-          ? FloatingActionButton.extended(
-              onPressed: _loading ? null : () => _openEditor(),
-              icon: const Icon(Icons.add),
-              label: const Text('Tambah Gejala'),
-            )
-          : null,
-      body: _isLoggedIn ? _buildManagement() : _buildLoginForm(),
+      body: _isLoggedIn ? _buildResults() : _buildLoginForm(),
     );
   }
 
-  // ── Login form ─────────────────────────────────────────────────────────────
+  // ── Login ────────────────────────────────────────────────────────────────────
 
   Widget _buildLoginForm() {
     return ListView(
@@ -417,7 +169,7 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          'Gunakan username & password dari sheet "admin" di Spreadsheet.',
+          'Masukkan password admin untuk melihat riwayat hasil diagnosa.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: const Color(0xFF64748B),
                 height: 1.5,
@@ -433,7 +185,7 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
           autocorrect: false,
           textInputAction: TextInputAction.next,
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
         TextField(
           controller: _passwordCtrl,
           decoration: InputDecoration(
@@ -466,11 +218,9 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
                     size: 16, color: Color(0xFFDC2626)),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text(
-                    _errorMsg!,
-                    style: const TextStyle(
-                        color: Color(0xFFDC2626), fontSize: 13),
-                  ),
+                  child: Text(_errorMsg!,
+                      style: const TextStyle(
+                          color: Color(0xFFDC2626), fontSize: 13)),
                 ),
               ],
             ),
@@ -480,8 +230,7 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
         FilledButton(
           onPressed: _loading ? null : _login,
           style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-          ),
+              padding: const EdgeInsets.symmetric(vertical: 16)),
           child: _loading
               ? const SizedBox(
                   width: 20,
@@ -496,13 +245,12 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
     );
   }
 
-  // ── Management view ────────────────────────────────────────────────────────
+  // ── Hasil diagnosa ───────────────────────────────────────────────────────────
 
-  Widget _buildManagement() {
-    if (_loading && _items.isEmpty) {
+  Widget _buildResults() {
+    if (_loading && _results.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
-
     return Column(
       children: [
         Container(
@@ -510,18 +258,16 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Row(
             children: [
-              Icon(
-                Icons.circle,
-                size: 8,
-                color: _loading
-                    ? const Color(0xFFF59E0B)
-                    : const Color(0xFF16A34A),
-              ),
+              Icon(Icons.circle,
+                  size: 8,
+                  color: _loading
+                      ? const Color(0xFFF59E0B)
+                      : const Color(0xFF16A34A)),
               const SizedBox(width: 8),
               Text(
                 _loading
                     ? 'Memperbarui...'
-                    : '${_items.length} gejala terdaftar',
+                    : '${_results.length} hasil diagnosa',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: const Color(0xFF475569),
                       fontWeight: FontWeight.w600,
@@ -533,8 +279,7 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
         if (_errorMsg != null)
           Container(
             color: const Color(0xFFFEF2F2),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             child: Row(
               children: [
                 const Icon(Icons.error_outline_rounded,
@@ -549,29 +294,28 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
             ),
           ),
         Expanded(
-          child: _items.isEmpty
+          child: _results.isEmpty
               ? Center(
-                  child: Text(
-                    'Belum ada data gejala.',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(color: const Color(0xFF94A3B8)),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.inbox_outlined,
+                          size: 48, color: Color(0xFF94A3B8)),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Belum ada hasil diagnosa.',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: const Color(0xFF94A3B8)),
+                      ),
+                    ],
                   ),
                 )
               : ListView.separated(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 12),
-                  itemCount: _items.length,
+                  itemCount: _results.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (context, i) {
-                    final s = _items[i];
-                    return _SymptomAdminCard(
-                      symptom: s,
-                      onEdit: () => _openEditor(existing: s),
-                      onDelete: () => _confirmDelete(s),
-                    );
-                  },
+                  itemBuilder: (_, i) => _DiagnosaCard(data: _results[i]),
                 ),
         ),
       ],
@@ -579,147 +323,164 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
   }
 }
 
-// ── Symptom Admin Card ─────────────────────────────────────────────────────────
+// ── Diagnosa Card ─────────────────────────────────────────────────────────────
 
-class _SymptomAdminCard extends StatelessWidget {
-  const _SymptomAdminCard({
-    required this.symptom,
-    required this.onEdit,
-    required this.onDelete,
-  });
+class _DiagnosaCard extends StatelessWidget {
+  const _DiagnosaCard({required this.data});
 
-  final SymptomDef symptom;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final Map<String, dynamic> data;
+
+  Color _bg(String id) => switch (id) {
+        'P01' => const Color(0xFFFEE2E2),
+        'P02' => const Color(0xFFFEF3C7),
+        _     => const Color(0xFFDCFCE7),
+      };
+
+  Color _textColor(String id) => switch (id) {
+        'P01' => const Color(0xFFDC2626),
+        'P02' => const Color(0xFFD97706),
+        _     => const Color(0xFF16A34A),
+      };
+
+  Color _border(String id) => switch (id) {
+        'P01' => const Color(0xFFFCA5A5),
+        'P02' => const Color(0xFFFCD34D),
+        _     => const Color(0xFF86EFAC),
+      };
+
+  String _formatTimestamp(String raw) {
+    try {
+      final dt = DateTime.parse(raw).toLocal();
+      const months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+        'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
+      ];
+      final h   = dt.hour.toString().padLeft(2, '0');
+      final min = dt.minute.toString().padLeft(2, '0');
+      return '${dt.day} ${months[dt.month - 1]} ${dt.year}, $h:$min';
+    } catch (_) {
+      return raw;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final isUtama = symptom.category == SymptomCategory.utama;
+    final id     = data['id_user']              as String? ?? 'P03';
+    final title  = data['hasil_utama_kode']     as String? ?? '-';
+    final cfStr  = data['hasil_utama_nilai_cf'] as String? ?? '0%';
+    final tsRaw  = data['timestamp']            as String? ?? '';
+    final symptomCodes = (data['detail_jawaban_json'] as String? ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    final namaMap = {for (final s in kFallbackSymptoms) s.id: s.hint};
+
     return Card(
       margin: EdgeInsets.zero,
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: isUtama
-              ? const Color(0xFFDC2626).withValues(alpha: 0.25)
-              : const Color(0xFFE2E8F0),
-        ),
+        side: BorderSide(color: _border(id)),
       ),
+      color: _bg(id).withValues(alpha: 0.45),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
-        child: Row(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 7, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: AppTheme.navy.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: Text(
-                          symptom.id,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.navy,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      if (isUtama)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFEE2E2),
-                            borderRadius: BorderRadius.circular(5),
-                          ),
-                          child: const Text(
-                            'utama',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFFDC2626),
-                            ),
-                          ),
-                        ),
-                      const Spacer(),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 7, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEFF6FF),
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: Text(
-                          'CF ${symptom.cfPakar.toStringAsFixed(1)}',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF2563EB),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Container(
-                        width: 7,
-                        height: 7,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: symptom.active
-                              ? const Color(0xFF16A34A)
-                              : const Color(0xFF94A3B8),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    symptom.hint.isNotEmpty ? symptom.hint : symptom.id,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 13,
-                      color: AppTheme.navy,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    symptom.question,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF64748B),
-                      height: 1.4,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ),
-            ),
-            Column(
-              mainAxisSize: MainAxisSize.min,
+            // ── Header: timestamp + badge ──────────────────────────────────
+            Row(
               children: [
-                IconButton(
-                  tooltip: 'Edit',
-                  icon: const Icon(Icons.edit_outlined, size: 18),
-                  onPressed: onEdit,
-                  color: AppTheme.navy,
+                Text(
+                  _formatTimestamp(tsRaw),
+                  style: const TextStyle(
+                      fontSize: 12, color: Color(0xFF64748B)),
                 ),
-                IconButton(
-                  tooltip: 'Hapus',
-                  icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                  onPressed: onDelete,
-                  color: const Color(0xFFDC2626),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: _bg(id),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: _border(id)),
+                  ),
+                  child: Text(
+                    id,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: _textColor(id),
+                    ),
+                  ),
                 ),
               ],
             ),
+            const SizedBox(height: 8),
+
+            // ── Judul + CF ─────────────────────────────────────────────────
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: _textColor(id),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  cfStr,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    color: _textColor(id),
+                  ),
+                ),
+              ],
+            ),
+
+            // ── Gejala aktif ───────────────────────────────────────────────
+            if (symptomCodes.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              const Text(
+                'Gejala yang dipilih:',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                children: symptomCodes
+                    .map((s) => Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppTheme.navy.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            '${namaMap[s] ?? s} ($s)',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.navy,
+                            ),
+                          ),
+                        ))
+                    .toList(),
+              ),
+            ],
           ],
         ),
       ),

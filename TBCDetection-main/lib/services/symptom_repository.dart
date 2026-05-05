@@ -62,6 +62,13 @@ class SymptomRepository {
         .toList();
   }
 
+  Future<List<Map<String, dynamic>>> loadDiagnosaForAdmin({
+    required String webAppUrl,
+    required String password,
+  }) {
+    return _api.listDiagnosaResults(webAppUrl: webAppUrl, password: password);
+  }
+
   Future<List<SymptomDef>> loadAllForAdmin({
     required String webAppUrl,
     required String username,

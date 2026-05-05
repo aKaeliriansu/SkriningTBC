@@ -96,6 +96,25 @@ class SheetSymptomApi {
     _checkOk(map, fallbackError: 'Gagal menghapus gejala');
   }
 
+  Future<List<Map<String, dynamic>>> listDiagnosaResults({
+    required String webAppUrl,
+    required String password,
+  }) async {
+    final uri = Uri.parse(webAppUrl.trim());
+    final res = await _client
+        .post(
+          uri,
+          headers: {'Content-Type': 'text/plain; charset=utf-8'},
+          body: jsonEncode({'password': password, 'action': 'listDiagnosa'}),
+        )
+        .timeout(_timeout);
+    _checkStatus(res);
+    final map = _decodeJson(res.body);
+    _checkOk(map);
+    final list = map['data'] as List<dynamic>? ?? [];
+    return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+  }
+
   Future<void> saveDiagnosaResult({
     required String webAppUrl,
     required Map<String, dynamic> data,

@@ -79,10 +79,10 @@ class _TbDetectionScreenState extends State<TbDetectionScreen> {
     // Simpan hasil ke sheet (fire-and-forget)
     final diagnosaData = {
       'timestamp': DateTime.now().toIso8601String(),
-      'conclusion_id': result.conclusionId,
-      'conclusion_title': result.conclusion.title,
-      'certainty': result.certainty,
-      'active_symptoms': result.activeSymptomIds.join(','),
+      'id_user': result.conclusionId,
+      'hasil_utama_kode': result.conclusion.title,
+      'hasil_utama_nilai_cf': '${(result.certainty * 100).toStringAsFixed(1)}%',
+      'detail_jawaban_json': result.activeSymptomIds.join(','),
     };
     _repo.saveDiagnosaResult(diagnosaData).catchError((_) {});
 
@@ -411,7 +411,7 @@ class _SymptomGrid extends StatelessWidget {
       itemCount: symptoms.length,
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 280,
-        mainAxisExtent: 160,
+        mainAxisExtent: 200,
         crossAxisSpacing: 10,
         mainAxisSpacing: 10,
       ),
@@ -542,7 +542,7 @@ class _SymptomCard extends StatelessWidget {
                 color: Color(0xFF64748B),
                 height: 1.35,
               ),
-              maxLines: 2,
+              maxLines: 5,
               overflow: TextOverflow.ellipsis,
             ),
             const Spacer(),

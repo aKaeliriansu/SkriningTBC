@@ -8,7 +8,7 @@ class LocalSettings {
 
   // URL default — dipakai jika belum dikonfigurasi manual
   static const kDefaultWebAppUrl =
-      'https://script.google.com/macros/s/AKfycbwninR39omIKiTrktRlIvdaFM2A0s_v8IakhULgcYNjLOglz1afJCt6ftfRvqIFEPXs/exec';
+      'https://script.google.com/macros/s/AKfycbx_DND6NtO1XJsre-cWdGmCp8Ys58ZC8qEwl7gMJSc3UIYaUb0XoleI9vpaBcz-MA/exec';
 
   Future<String> getWebAppUrl() async {
     final p = await SharedPreferences.getInstance();
