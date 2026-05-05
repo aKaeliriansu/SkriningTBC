@@ -35,13 +35,19 @@ class InferenceResult {
   final List<String> activeSymptomIds;
 }
 
-/// Mesin forward chaining 4-level dengan certainty factor (MYCIN combine).
+/// Mesin forward chaining 10-rule dengan certainty factor (MYCIN combine).
 ///
-/// Tier logic:
-///   Level 1 — cek KG1 (gateway): jika tidak ada → P03
-///   Level 2 — cek KG2/KG3 (batuk kronis/berdarah): jika ada → P02 awal
-///   Level 3 — gejala pendukung KG4–KG13 tanpa Level 2 → P02
-///   Level 4 — gejala pendukung KG4–KG13 setelah Level 2 → P01
+/// Semua gejala bersifat opsional. Tidak ada gateway wajib.
+/// Gejala dikelompokkan berdasarkan CF Pakar:
+///   Respirasi Khas  (CF 0.8): KG2 (batuk kronis), KG3 (batuk berdarah)
+///   Sistemik Kuat   (CF 0.8): KG5 (demam malam), KG7 (keringat malam)
+///   Riwayat/Kontak  (CF 0.8): KG11 (keluarga TBC), KG13 (kontak TBC)
+///   Pendukung Sedang(CF 0.6): KG6 (nyeri dada), KG9 (BB turun), KG12 (riwayat TBC)
+///   Gejala Ringan   (CF 0.4): KG1 (batuk), KG4 (sesak), KG8 (nafsu makan), KG10 (lelah)
+///   Sangat Ringan   (CF 0.3): KG14 (imunisasi BCG)
+///
+/// Rumus CF evidence: CF_user × CF_pakar
+/// Rumus combine    : CF(A,B) = CF(A) + CF(B) × (1 − CF(A))
 class ForwardChainingEngine {
   ForwardChainingEngine({this.activationThreshold = 0.05});
 
@@ -56,132 +62,117 @@ class ForwardChainingEngine {
   }) {
     final effectiveSymptoms = symptoms ?? kFallbackSymptoms;
     final traces = <FiredRuleTrace>[];
-    final activeIds = <String>[];
 
-    // Hitung CF bukti: CF_user × CF_pakar
+    // CF_evidence = CF_user × CF_pakar
     double evidenceCf(String id) {
       final userCf = userSymptomCf[id] ?? 0.0;
       if (userCf < activationThreshold) return 0.0;
       final sym = effectiveSymptoms.where((s) => s.id == id).firstOrNull;
-      final pakar = sym?.cfPakar ?? 0.5;
-      return (userCf * pakar).clamp(0.0, 1.0);
+      return (userCf * (sym?.cfPakar ?? 0.5)).clamp(0.0, 1.0);
     }
 
-    // ── Level 1: Apakah ada batuk berdahak (KG1)? ───────────────────────────
-    final kg1 = evidenceCf('KG1');
-    if (kg1 < activationThreshold) {
-      traces.add(const FiredRuleTrace(
-        ruleId: 'R1',
-        conclusionId: 'P03',
-        cfPremise: 0,
-        cfAfterExpert: 0,
-        description: 'R1: Tidak ada batuk berdahak → Bukan TBC',
-      ));
-      return _build('P03', 0.0, traces, {'P03': 0.0}, activeIds);
+    // Kumpulkan semua gejala aktif
+    final active = <String, double>{};
+    for (final s in effectiveSymptoms) {
+      final cf = evidenceCf(s.id);
+      if (cf >= activationThreshold) active[s.id] = cf;
     }
-    activeIds.add('KG1');
+    final activeIds = active.keys.toList();
 
-    // ── Level 2: Batuk kronis (KG2) atau batuk berdarah (KG3) ───────────────
-    final kg2 = evidenceCf('KG2');
-    final kg3 = evidenceCf('KG3');
-    final hasLevel2 = kg2 >= activationThreshold || kg3 >= activationThreshold;
+    // CF gabungan seluruh gejala aktif (MYCIN sequential combine)
+    double cfTotal = 0.0;
+    for (final cf in active.values) {
+      cfTotal = combinePositive(cfTotal, cf);
+    }
 
-    double mainCf = kg1;
-    if (kg2 >= activationThreshold) {
-      activeIds.add('KG2');
-      mainCf = combinePositive(mainCf, kg2);
+    // Helper: tambah trace dan kembalikan hasil
+    InferenceResult decide(String ruleId, String conclusionId, String desc) {
       traces.add(FiredRuleTrace(
-        ruleId: 'R3',
-        conclusionId: 'P02',
-        cfPremise: kg2,
-        cfAfterExpert: mainCf,
-        description: 'R3: KG1 + KG2 (batuk > 2 minggu) → CF=${ mainCf.toStringAsFixed(2)}',
+        ruleId: ruleId,
+        conclusionId: conclusionId,
+        cfPremise: cfTotal,
+        cfAfterExpert: cfTotal,
+        description: desc,
       ));
-    }
-    if (kg3 >= activationThreshold) {
-      activeIds.add('KG3');
-      mainCf = combinePositive(mainCf, kg3);
-      traces.add(FiredRuleTrace(
-        ruleId: 'R4',
-        conclusionId: 'P02',
-        cfPremise: kg3,
-        cfAfterExpert: mainCf,
-        description: 'R4: KG1 + KG3 (batuk berdarah) → CF=${mainCf.toStringAsFixed(2)}',
-      ));
+      return _build(conclusionId, cfTotal, traces, {conclusionId: cfTotal}, activeIds);
     }
 
-    // ── Level 3/4: Gejala pendukung KG4–KG13 ─────────────────────────────────
-    const supportingIds = [
-      'KG4', 'KG5', 'KG6', 'KG7', 'KG8',
-      'KG9', 'KG10', 'KG11', 'KG12', 'KG13',
-    ];
-    double supportingCf = 0.0;
-    for (final id in supportingIds) {
-      final cf = evidenceCf(id);
-      if (cf >= activationThreshold) {
-        activeIds.add(id);
-        supportingCf = combinePositive(supportingCf, cf);
-        traces.add(FiredRuleTrace(
-          ruleId: hasLevel2 ? 'R6' : 'R5',
-          conclusionId: hasLevel2 ? 'P01' : 'P02',
-          cfPremise: cf,
-          cfAfterExpert: supportingCf,
-          description: '${hasLevel2 ? "R6" : "R5"}: $id → CF_supporting=${supportingCf.toStringAsFixed(2)}',
-        ));
-      }
+    bool has(String id) => active.containsKey(id);
+    bool hasAnyOf(List<String> ids) => ids.any(has);
+
+    // Klasifikasi kelompok berdasarkan CF Pakar
+    final hasRespStrong = hasAnyOf(['KG2', 'KG3']);         // Batuk kronis / berdarah
+    final hasSysStrong  = hasAnyOf(['KG5', 'KG7']);         // Demam malam / keringat malam
+    final hasExpStrong  = hasAnyOf(['KG11', 'KG13']);        // Riwayat keluarga / kontak TBC
+    final hasMedium     = hasAnyOf(['KG6', 'KG9', 'KG12']); // Nyeri dada / BB turun / riwayat TBC
+    final weakSet       = {'KG1', 'KG4', 'KG8', 'KG10', 'KG14'};
+    final hasWeakOnly   = active.keys.every(weakSet.contains);
+
+    // ── R1: Tidak ada gejala aktif ──────────────────────────────────────────
+    if (active.isEmpty) {
+      return decide('R1', 'P03', 'R1: Tidak ada gejala aktif → Bukan TBC');
     }
 
-    // KG14 (Riwayat Imunisasi BCG) — faktor pendukung ringan
-    final kg14 = evidenceCf('KG14');
-    if (kg14 >= activationThreshold) {
-      activeIds.add('KG14');
-      supportingCf = combinePositive(supportingCf, kg14);
-      traces.add(FiredRuleTrace(
-        ruleId: hasLevel2 ? 'R6' : 'R5',
-        conclusionId: hasLevel2 ? 'P01' : 'P02',
-        cfPremise: kg14,
-        cfAfterExpert: supportingCf,
-        description: 'KG14: riwayat imunisasi → CF_supporting=${supportingCf.toStringAsFixed(2)}',
-      ));
+    // ── R2: Hanya gejala ringan (CF_pakar ≤ 0.4) ───────────────────────────
+    if (hasWeakOnly) {
+      return decide('R2', 'P03',
+          'R2: Hanya gejala umum ringan aktif (${activeIds.join(", ")}) → Bukan TBC, CF=${cfTotal.toStringAsFixed(2)}');
     }
 
-    // ── Penentuan hasil akhir ──────────────────────────────────────────────────
-    if (hasLevel2) {
-      if (supportingCf >= activationThreshold) {
-        // R6: Level2 + gejala pendukung → P01 Positif TBC
-        final finalCf = combinePositive(mainCf, supportingCf);
-        return _build('P01', finalCf, traces, {
-          'P01': finalCf,
-          'P02': mainCf,
-        }, activeIds);
-      } else {
-        // R3/R4 tanpa pendukung → P02 Mungkin TBC
-        return _build('P02', mainCf, traces, {'P02': mainCf}, activeIds);
-      }
-    } else {
-      if (supportingCf >= activationThreshold) {
-        // R5: KG1 + pendukung → P02 Mungkin TBC
-        final finalCf = combinePositive(kg1, supportingCf);
-        traces.add(FiredRuleTrace(
-          ruleId: 'R5',
-          conclusionId: 'P02',
-          cfPremise: kg1,
-          cfAfterExpert: finalCf,
-          description: 'R5: KG1 + gejala pendukung → CF=${finalCf.toStringAsFixed(2)}',
-        ));
-        return _build('P02', finalCf, traces, {'P02': finalCf}, activeIds);
-      } else {
-        // R2: Hanya KG1 tanpa gejala lain → P03
-        traces.add(FiredRuleTrace(
-          ruleId: 'R2',
-          conclusionId: 'P03',
-          cfPremise: kg1,
-          cfAfterExpert: kg1,
-          description: 'R2: Hanya batuk biasa tanpa gejala lain → Bukan TBC',
-        ));
-        return _build('P03', kg1, traces, {'P03': kg1}, activeIds);
-      }
+    // ── P01: Rules prioritas tinggi ─────────────────────────────────────────
+
+    // R10: Respirasi khas + Sistemik kuat + Riwayat/Kontak kuat
+    if (hasRespStrong && hasSysStrong && hasExpStrong) {
+      return decide('R10', 'P01',
+          'R10: Respirasi khas + sistemik kuat + riwayat/kontak → Positif TBC, CF=${cfTotal.toStringAsFixed(2)}');
     }
+
+    // R9: Respirasi khas + Sistemik kuat
+    if (hasRespStrong && hasSysStrong) {
+      return decide('R9', 'P01',
+          'R9: Respirasi khas (KG2/KG3) + sistemik kuat (KG5/KG7) → Positif TBC, CF=${cfTotal.toStringAsFixed(2)}');
+    }
+
+    // R8: Respirasi khas + gejala pendukung sedang atau riwayat/kontak kuat
+    if (hasRespStrong && (hasMedium || hasExpStrong)) {
+      return decide('R8', 'P01',
+          'R8: Respirasi khas + pendukung sedang/riwayat → Positif TBC, CF=${cfTotal.toStringAsFixed(2)}');
+    }
+
+    // R7: Sistemik kuat + Riwayat/Kontak kuat (tanpa respirasi khas)
+    if (hasSysStrong && hasExpStrong) {
+      return decide('R7', 'P01',
+          'R7: Sistemik kuat + riwayat/kontak kuat (tanpa respirasi khas) → Positif TBC, CF=${cfTotal.toStringAsFixed(2)}');
+    }
+
+    // ── P02: Rules mungkin TBC ──────────────────────────────────────────────
+
+    // R6: Respirasi khas saja (tanpa pendukung kuat lain)
+    if (hasRespStrong) {
+      return decide('R6', 'P02',
+          'R6: Respirasi khas tanpa pendukung kuat → Mungkin TBC, CF=${cfTotal.toStringAsFixed(2)}');
+    }
+
+    // R5: Sistemik kuat tanpa respirasi khas
+    if (hasSysStrong) {
+      return decide('R5', 'P02',
+          'R5: Sistemik kuat tanpa respirasi khas → Mungkin TBC, CF=${cfTotal.toStringAsFixed(2)}');
+    }
+
+    // R4: Riwayat/kontak kuat tanpa tanda klinis khas
+    if (hasExpStrong) {
+      return decide('R4', 'P02',
+          'R4: Riwayat/kontak kuat tanpa tanda klinis khas → Mungkin TBC, CF=${cfTotal.toStringAsFixed(2)}');
+    }
+
+    // R3: Gejala pendukung sedang saja (KG6/KG9/KG12)
+    if (hasMedium) {
+      return decide('R3', 'P02',
+          'R3: Gejala pendukung sedang tanpa tanda khas → Mungkin TBC, CF=${cfTotal.toStringAsFixed(2)}');
+    }
+
+    // Fallback (logically unreachable setelah R2 menangkap hasWeakOnly)
+    return decide('R2', 'P03', 'R2: Gejala tidak memenuhi kriteria skrining → Bukan TBC');
   }
 
   InferenceResult _build(

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../models/symptom_def.dart';
 import '../services/local_settings.dart';
@@ -196,7 +196,7 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: AppTheme.navy.withOpacity(0.08),
+                        color: AppTheme.navy.withValues(alpha: 0.08),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
@@ -401,7 +401,7 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
           width: 56,
           height: 56,
           decoration: BoxDecoration(
-            color: AppTheme.navy.withOpacity(0.08),
+            color: AppTheme.navy.withValues(alpha: 0.08),
             borderRadius: BorderRadius.circular(14),
           ),
           child: const Icon(Icons.admin_panel_settings_outlined,
@@ -506,7 +506,7 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
     return Column(
       children: [
         Container(
-          color: AppTheme.navy.withOpacity(0.04),
+          color: AppTheme.navy.withValues(alpha: 0.04),
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Row(
             children: [
@@ -602,7 +602,7 @@ class _SymptomAdminCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
           color: isUtama
-              ? const Color(0xFFDC2626).withOpacity(0.25)
+              ? const Color(0xFFDC2626).withValues(alpha: 0.25)
               : const Color(0xFFE2E8F0),
         ),
       ),
@@ -620,7 +620,7 @@ class _SymptomAdminCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 7, vertical: 2),
                         decoration: BoxDecoration(
-                          color: AppTheme.navy.withOpacity(0.08),
+                          color: AppTheme.navy.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(5),
                         ),
                         child: Text(

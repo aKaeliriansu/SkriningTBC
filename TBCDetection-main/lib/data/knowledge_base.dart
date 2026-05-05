@@ -152,57 +152,106 @@ const List<SymptomDef> kFallbackSymptoms = [
 ];
 
 // ─── Aturan forward chaining (dokumentasi) ────────────────────────────────────
-// Engine menggunakan logika tier, bukan iterasi kRules. Daftar ini untuk
-// referensi dan pengisian kolom rule_forward_chaining di database.
+// Engine menggunakan if-else berprioritas, bukan iterasi kRules. Daftar ini
+// untuk referensi dokumentasi dan pengisian rule_forward_chaining di database.
+//
+// Semua gejala bersifat opsional — tidak ada gateway wajib.
+// CF_evidence(KGn) = CF_user × CF_pakar_n
+// CF_combine(A,B)  = CF(A) + CF(B) × (1 − CF(A))
+// CF_total         = combine berurutan seluruh gejala aktif
+//
+// Kelompok gejala berdasarkan CF Pakar:
+//   Respirasi Khas   (0.8) : KG2 batuk kronis, KG3 batuk berdarah
+//   Sistemik Kuat    (0.8) : KG5 demam malam, KG7 keringat malam
+//   Riwayat/Kontak   (0.8) : KG11 keluarga TBC, KG13 kontak TBC
+//   Pendukung Sedang (0.6) : KG6 nyeri dada, KG9 penurunan BB, KG12 riwayat TBC
+//   Gejala Ringan    (0.4) : KG1 batuk, KG4 sesak, KG8 nafsu makan, KG10 lelah
+//   Sangat Ringan    (0.3) : KG14 imunisasi BCG
 
 const List<ExpertRule> kRules = [
+  // ── P03: Bukan TBC ─────────────────────────────────────────────────────────
   ExpertRule(
     id: 'R1',
     requiredIds: [],
     conclusionId: 'P03',
     cfExpert: 0.0,
-    description: 'TIDAK ADA KG1 (Batuk Berdahak) → P03 Bukan TBC. '
-        'Batuk adalah gateway symptom; tanpa batuk proses berhenti.',
+    description: 'Tidak ada gejala aktif → P03 Bukan TBC. CF = 0.',
   ),
   ExpertRule(
     id: 'R2',
-    requiredIds: ['KG1'],
+    requiredIds: [],
     conclusionId: 'P03',
-    cfExpert: 0.4,
-    description: 'KG1 = YA, KG2 = TIDAK, KG3 = TIDAK, KG4–KG13 semua TIDAK → '
-        'P03 Bukan TBC. Batuk tunggal tanpa gejala pendukung.',
+    cfExpert: 0.0,
+    description: 'Hanya gejala ringan (CF_pakar ≤ 0.4) aktif: subset {KG1, KG4, KG8, KG10, KG14} '
+        '→ P03 Bukan TBC. CF = combine(gejala ringan aktif).',
   ),
+
+  // ── P02: Mungkin TBC ───────────────────────────────────────────────────────
   ExpertRule(
     id: 'R3',
-    requiredIds: ['KG1', 'KG2'],
+    requiredIds: ['KG6/KG9/KG12'],
     conclusionId: 'P02',
     cfExpert: 0.0,
-    description: 'KG1 AND KG2 → P02 Mungkin TBC. '
-        'CF = CF_combine(KG1, KG2) = CF(KG1) + CF(KG2)×(1−CF(KG1)).',
+    description: 'Gejala pendukung sedang (KG6/KG9/KG12, CF_pakar 0.6) aktif '
+        'tanpa tanda khas TBC → P02 Mungkin TBC. CF = combine(gejala sedang aktif).',
   ),
   ExpertRule(
     id: 'R4',
-    requiredIds: ['KG1', 'KG3'],
+    requiredIds: ['KG11/KG13'],
     conclusionId: 'P02',
     cfExpert: 0.0,
-    description: 'KG1 AND KG3 → P02 Mungkin TBC. '
-        'CF = CF_combine(KG1, KG3). Hemoptisis adalah tanda klinis serius.',
+    description: 'Riwayat/kontak kuat (KG11 atau KG13, CF_pakar 0.8) aktif '
+        'tanpa respirasi khas dan tanpa sistemik kuat → P02 Mungkin TBC.',
   ),
   ExpertRule(
     id: 'R5',
-    requiredIds: ['KG1'],
+    requiredIds: ['KG5/KG7'],
     conclusionId: 'P02',
     cfExpert: 0.0,
-    description: 'KG1 = YA, KG2/KG3 = TIDAK, setidaknya satu KG4–KG13 = YA → '
-        'P02 Mungkin TBC. CF = CF_combine bertahap semua gejala aktif.',
+    description: 'Sistemik kuat (KG5 atau KG7, CF_pakar 0.8) aktif '
+        'tanpa respirasi khas → P02 Mungkin TBC. CF = combine(gejala aktif).',
   ),
   ExpertRule(
     id: 'R6',
-    requiredIds: ['KG1', 'KG2/KG3'],
+    requiredIds: ['KG2/KG3'],
+    conclusionId: 'P02',
+    cfExpert: 0.0,
+    description: 'Respirasi khas (KG2 atau KG3, CF_pakar 0.8) aktif '
+        'tanpa sistemik kuat/pendukung signifikan → P02 Mungkin TBC.',
+  ),
+
+  // ── P01: Positif TBC ───────────────────────────────────────────────────────
+  ExpertRule(
+    id: 'R7',
+    requiredIds: ['KG5/KG7', 'KG11/KG13'],
     conclusionId: 'P01',
     cfExpert: 0.0,
-    description: 'R3 atau R4 terpenuhi DAN setidaknya satu KG4–KG13 = YA → '
-        'P01 Positif TBC. CF_final = CF_combine(CF_level2, CF_supporting).',
+    description: 'Sistemik kuat (KG5/KG7) DAN riwayat/kontak kuat (KG11/KG13) '
+        'aktif tanpa respirasi khas → P01 Positif TBC. CF = combine(semua aktif).',
+  ),
+  ExpertRule(
+    id: 'R8',
+    requiredIds: ['KG2/KG3', 'KG6/KG9/KG12_atau_KG11/KG13'],
+    conclusionId: 'P01',
+    cfExpert: 0.0,
+    description: 'Respirasi khas (KG2/KG3) DAN pendukung sedang (KG6/KG9/KG12) '
+        'atau riwayat/kontak kuat → P01 Positif TBC. CF = combine(semua aktif).',
+  ),
+  ExpertRule(
+    id: 'R9',
+    requiredIds: ['KG2/KG3', 'KG5/KG7'],
+    conclusionId: 'P01',
+    cfExpert: 0.0,
+    description: 'Respirasi khas (KG2/KG3) DAN sistemik kuat (KG5/KG7) '
+        '→ P01 Positif TBC. CF = combine(semua aktif).',
+  ),
+  ExpertRule(
+    id: 'R10',
+    requiredIds: ['KG2/KG3', 'KG5/KG7', 'KG11/KG13'],
+    conclusionId: 'P01',
+    cfExpert: 0.0,
+    description: 'Respirasi khas DAN sistemik kuat DAN riwayat/kontak kuat '
+        '→ P01 Positif TBC dengan keyakinan tertinggi. CF = combine(semua aktif).',
   ),
 ];
 

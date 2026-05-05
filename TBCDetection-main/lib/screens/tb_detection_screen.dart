@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../models/symptom_def.dart';
 import '../services/forward_chaining_engine.dart';
@@ -133,10 +133,10 @@ class _TbDetectionScreenState extends State<TbDetectionScreen> {
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: AppTheme.blueBright.withOpacity(0.07),
+                    color: AppTheme.blueBright.withValues(alpha: 0.07),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: AppTheme.blueBright.withOpacity(0.25),
+                      color: AppTheme.blueBright.withValues(alpha: 0.25),
                     ),
                   ),
                   child: Row(
@@ -147,8 +147,8 @@ class _TbDetectionScreenState extends State<TbDetectionScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Pilih gejala yang Anda rasakan, lalu atur tingkat '
-                          'keyakinan Anda (Ragu / Yakin / Pasti) untuk setiap gejala.',
+                          'Pilih gejala yang Anda rasakan, lalu gulir roda keyakinan '
+                          'untuk setiap gejala (Tidak → Sangat Yakin).',
                           style:
                               Theme.of(context).textTheme.bodySmall?.copyWith(
                                     color: AppTheme.blueBright,
@@ -195,7 +195,7 @@ class _TbDetectionScreenState extends State<TbDetectionScreen> {
                       if (_userCfs.containsKey(id)) {
                         _userCfs.remove(id);
                       } else {
-                        _userCfs[id] = 1.0;
+                        _userCfs[id] = 0.8;
                       }
                     }),
                     onCfChanged: (id, cf) => setState(() => _userCfs[id] = cf),
@@ -216,7 +216,7 @@ class _TbDetectionScreenState extends State<TbDetectionScreen> {
                       if (_userCfs.containsKey(id)) {
                         _userCfs.remove(id);
                       } else {
-                        _userCfs[id] = 1.0;
+                        _userCfs[id] = 0.8;
                       }
                     }),
                     onCfChanged: (id, cf) => setState(() => _userCfs[id] = cf),
@@ -411,7 +411,7 @@ class _SymptomGrid extends StatelessWidget {
       itemCount: symptoms.length,
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 280,
-        mainAxisExtent: 158,
+        mainAxisExtent: 160,
         crossAxisSpacing: 10,
         mainAxisSpacing: 10,
       ),
@@ -445,12 +445,30 @@ class _SymptomCard extends StatelessWidget {
   final VoidCallback onTap;
   final void Function(double) onCfChanged;
 
+  static const _options = [
+    (label: 'Sangat Yakin', value: 1.00),
+    (label: 'Yakin', value: 0.80),
+    (label: 'Cukup Yakin', value: 0.60),
+    (label: 'Kurang Yakin', value: 0.40),
+    (label: 'Tidak Yakin', value: 0.20),
+    (label: 'Tidak', value: 0.00),
+  ];
+
   bool get isSelected => cfUser != null;
+
+  String get _currentLabel {
+    if (cfUser == null) return 'Pilih';
+    final opt = _options.firstWhere(
+      (e) => (e.value - cfUser!).abs() < 0.01,
+      orElse: () => _options[1],
+    );
+    return opt.label;
+  }
 
   @override
   Widget build(BuildContext context) {
     final bg = isSelected
-        ? AppTheme.navy.withOpacity(0.06)
+        ? AppTheme.navy.withValues(alpha: 0.06)
         : const Color(0xFFF8FAFC);
     final borderColor = isSelected ? AppTheme.navy : const Color(0xFFE2E8F0);
     final iconColor = isSelected ? AppTheme.navy : const Color(0xFF94A3B8);
@@ -468,7 +486,6 @@ class _SymptomCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Header: icon + checkbox ──────────────────────────────────────
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -477,7 +494,7 @@ class _SymptomCard extends StatelessWidget {
                   height: 32,
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? AppTheme.navy.withOpacity(0.12)
+                        ? AppTheme.navy.withValues(alpha: 0.12)
                         : Colors.white,
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: borderColor),
@@ -506,8 +523,6 @@ class _SymptomCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-
-            // ── Nama gejala ──────────────────────────────────────────────────
             Text(
               symptom.hint.isNotEmpty ? symptom.hint : symptom.id,
               style: TextStyle(
@@ -520,8 +535,6 @@ class _SymptomCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 3),
-
-            // ── Pertanyaan ───────────────────────────────────────────────────
             Text(
               symptom.question,
               style: const TextStyle(
@@ -532,10 +545,7 @@ class _SymptomCard extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
-
             const Spacer(),
-
-            // ── CF User gauge (selalu ambil space, visible saat dipilih) ─────
             Visibility(
               visible: isSelected,
               maintainSize: true,
@@ -545,79 +555,74 @@ class _SymptomCard extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Divider(
-                    height: 10,
+                    height: 8,
                     thickness: 0.5,
-                    color: AppTheme.navy.withOpacity(0.15),
+                    color: AppTheme.navy.withValues(alpha: 0.15),
                   ),
-                  Row(
-                    children: [
-                      _CfChip(
-                        label: 'Ragu',
-                        isActive: cfUser == 0.4,
-                        onTap: () => onCfChanged(0.4),
+                  PopupMenuButton<double>(
+                    onSelected: onCfChanged,
+                    padding: EdgeInsets.zero,
+                    tooltip: '',
+                    itemBuilder: (_) => _options.map((opt) {
+                      final active = cfUser != null &&
+                          (opt.value - cfUser!).abs() < 0.01;
+                      return PopupMenuItem<double>(
+                        value: opt.value,
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.check,
+                              size: 14,
+                              color: active
+                                  ? AppTheme.navy
+                                  : Colors.transparent,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '${opt.label}  (${opt.value.toStringAsFixed(2)})',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: active
+                                    ? FontWeight.w700
+                                    : FontWeight.w400,
+                                color: active ? AppTheme.navy : null,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    child: Container(
+                      height: 24,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      decoration: BoxDecoration(
+                        color: AppTheme.navy.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(6),
                       ),
-                      const SizedBox(width: 4),
-                      _CfChip(
-                        label: 'Yakin',
-                        isActive: cfUser == 0.7,
-                        onTap: () => onCfChanged(0.7),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            _currentLabel,
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.navy,
+                            ),
+                          ),
+                          const Icon(
+                            Icons.more_horiz,
+                            size: 14,
+                            color: AppTheme.navy,
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 4),
-                      _CfChip(
-                        label: 'Pasti',
-                        isActive: cfUser == 1.0,
-                        onTap: () => onCfChanged(1.0),
-                      ),
-                    ],
+                    ),
                   ),
                 ],
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CfChip extends StatelessWidget {
-  const _CfChip({
-    required this.label,
-    required this.isActive,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool isActive;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          height: 22,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: isActive ? AppTheme.navy : Colors.transparent,
-            borderRadius: BorderRadius.circular(5),
-            border: Border.all(
-              color: isActive
-                  ? AppTheme.navy
-                  : const Color(0xFFCBD5E1),
-              width: 0.8,
-            ),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: isActive ? Colors.white : const Color(0xFF94A3B8),
-            ),
-          ),
         ),
       ),
     );

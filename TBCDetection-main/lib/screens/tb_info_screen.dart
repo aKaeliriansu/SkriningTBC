@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../theme/app_theme.dart';
@@ -88,7 +88,7 @@ class _HeroSection extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: AppTheme.blueBright.withOpacity(0.3),
+                    color: AppTheme.blueBright.withValues(alpha: 0.3),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: const Text(
@@ -117,7 +117,7 @@ class _HeroSection extends StatelessWidget {
                   'Pelajari bagaimana skrining TBC dapat memberdayakan '
                   'perjalanan kesehatan Anda melalui wawasan profesional.',
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.82),
+                    color: Colors.white.withValues(alpha: 0.82),
                     fontSize: 13,
                     height: 1.6,
                   ),
@@ -291,7 +291,7 @@ class _StatCard extends StatelessWidget {
               fontSize: 10,
               fontWeight: FontWeight.w600,
               color: highlighted
-                  ? Colors.white.withOpacity(0.85)
+                  ? Colors.white.withValues(alpha: 0.85)
                   : const Color(0xFF94A3B8),
               letterSpacing: 0.3,
               height: 1.4,
@@ -473,7 +473,7 @@ class _SymptomInfoCard extends StatelessWidget {
         border: Border.all(color: const Color(0xFFE5E7EB)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -486,7 +486,7 @@ class _SymptomInfoCard extends StatelessWidget {
             width: 34,
             height: 34,
             decoration: BoxDecoration(
-              color: item.color.withOpacity(0.1),
+              color: item.color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(item.icon, size: 18, color: item.color),
@@ -639,7 +639,7 @@ class _PreventionStep extends StatelessWidget {
             child: Text(
               text,
               style: TextStyle(
-                color: Colors.white.withOpacity(0.88),
+                color: Colors.white.withValues(alpha: 0.88),
                 fontSize: 13,
                 height: 1.5,
               ),

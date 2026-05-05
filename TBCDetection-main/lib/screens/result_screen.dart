@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../data/knowledge_base.dart';
 import '../services/forward_chaining_engine.dart';
@@ -334,7 +334,7 @@ class _Header extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
           decoration: BoxDecoration(
-            color: style.chipColor.withOpacity(0.12),
+            color: style.chipColor.withValues(alpha: 0.12),
             borderRadius: BorderRadius.circular(20),
           ),
           child: Text(
@@ -506,7 +506,7 @@ class _ActionTile extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: accentColor.withOpacity(0.1),
+              color: accentColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(item.icon, size: 18, color: accentColor),
