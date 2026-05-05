@@ -405,25 +405,26 @@ class _SymptomGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: symptoms.length,
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 280,
-        mainAxisExtent: 200,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-      ),
-      itemBuilder: (context, i) {
-        final s = symptoms[i];
-        final cfUser = userCfs[s.id];
-        return _SymptomCard(
-          symptom: s,
-          icon: _iconFor(s.id),
-          cfUser: cfUser,
-          onTap: () => onToggle(s.id),
-          onCfChanged: (cf) => onCfChanged(s.id, cf),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cols = constraints.maxWidth >= 500 ? 3 : 2;
+        final itemWidth = (constraints.maxWidth - 10 * (cols - 1)) / cols;
+        return Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: symptoms.map((s) {
+            final cfUser = userCfs[s.id];
+            return SizedBox(
+              width: itemWidth,
+              child: _SymptomCard(
+                symptom: s,
+                icon: _iconFor(s.id),
+                cfUser: cfUser,
+                onTap: () => onToggle(s.id),
+                onCfChanged: (cf) => onCfChanged(s.id, cf),
+              ),
+            );
+          }).toList(),
         );
       },
     );
@@ -485,6 +486,7 @@ class _SymptomCard extends StatelessWidget {
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -531,8 +533,6 @@ class _SymptomCard extends StatelessWidget {
                 color: isSelected ? AppTheme.navy : const Color(0xFF1E293B),
                 height: 1.2,
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 3),
             Text(
@@ -542,10 +542,8 @@ class _SymptomCard extends StatelessWidget {
                 color: Color(0xFF64748B),
                 height: 1.35,
               ),
-              maxLines: 5,
-              overflow: TextOverflow.ellipsis,
             ),
-            const Spacer(),
+            const SizedBox(height: 8),
             Visibility(
               visible: isSelected,
               maintainSize: true,
