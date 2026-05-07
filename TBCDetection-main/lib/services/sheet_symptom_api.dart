@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 
 import '../models/symptom_def.dart';
@@ -105,17 +106,23 @@ class SheetSymptomApi {
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
 
-  /// POST ke GAS dengan penanganan redirect manual.
-  /// - Hop pertama: POST dengan body (agar doPost() terpanggil di GAS).
-  /// - Redirect 302/303: follow sebagai GET (echo URL GAS hanya terima GET).
-  /// - Redirect 307/308: follow tetap sebagai POST.
+  /// POST ke GAS dengan penanganan redirect.
+  /// - Web: biarkan browser menangani redirect secara native.
+  /// - Non-web: follow manual karena dart:io mengubah POST→GET pada 302,
+  ///   sedangkan echo URL GAS hanya menerima GET setelah redirect pertama.
   Future<http.Response> _post(Uri uri, String jsonBody) async {
+    const headers = {'Content-Type': 'text/plain; charset=utf-8'};
+    if (kIsWeb) {
+      return _client
+          .post(uri, headers: headers, body: jsonBody)
+          .timeout(_timeout);
+    }
     Uri current = uri;
-    String? method = 'POST';
+    String method = 'POST';
     for (int hop = 0; hop < 5; hop++) {
-      final req = http.Request(method!, current)..followRedirects = false;
+      final req = http.Request(method, current)..followRedirects = false;
       if (method == 'POST') {
-        req.headers['Content-Type'] = 'text/plain; charset=utf-8';
+        req.headers.addAll(headers);
         req.body = jsonBody;
       }
       final streamed = await _client.send(req).timeout(_timeout);
@@ -124,7 +131,6 @@ class SheetSymptomApi {
         final loc = res.headers['location'];
         if (loc == null || loc.isEmpty) break;
         current = current.resolve(loc);
-        // 307/308 pertahankan POST; 301/302/303 beralih ke GET
         method = (res.statusCode == 307 || res.statusCode == 308) ? 'POST' : 'GET';
         continue;
       }
