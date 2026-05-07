@@ -51,11 +51,11 @@ class ResultScreen extends StatelessWidget {
   String get _certaintyLabel {
     final pct = (result.certainty * 100).round();
     if (pct == 0) return 'TIDAK ADA INDIKASI';
-    if (pct < 30) return 'LOW CERTAINTY';
-    if (pct < 50) return 'MODERATELY LOW CERTAINTY';
-    if (pct < 70) return 'MODERATELY HIGH CERTAINTY';
-    if (pct < 90) return 'HIGH CERTAINTY';
-    return 'VERY HIGH CERTAINTY';
+    if (pct < 30) return 'TINGKAT KEYAKINAN RENDAH';
+    if (pct < 50) return 'TINGKAT KEYAKINAN CUKUP RENDAH';
+    if (pct < 70) return 'TINGKAT KEYAKINAN CUKUP TINGGI';
+    if (pct < 90) return 'TINGKAT KEYAKINAN TINGGI';
+    return 'TINGKAT KEYAKINAN SANGAT TINGGI';
   }
 
   String _buildAnalysisText() {

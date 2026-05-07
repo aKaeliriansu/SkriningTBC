@@ -29,17 +29,10 @@ class SheetSymptomApi {
     required String password,
   }) async {
     final uri = Uri.parse(webAppUrl.trim());
-    final res = await _client
-        .post(
-          uri,
-          headers: {'Content-Type': 'text/plain; charset=utf-8'},
-          body: jsonEncode({
-            'username': username,
-            'password': password,
-            'action': 'listSymptoms',
-          }),
-        )
-        .timeout(_timeout);
+    final res = await _post(
+      uri,
+      jsonEncode({'username': username, 'password': password, 'action': 'listSymptoms'}),
+    );
     _checkStatus(res);
     final map = _decodeJson(res.body);
     _checkOk(map);
@@ -55,18 +48,10 @@ class SheetSymptomApi {
     required SymptomDef symptom,
   }) async {
     final uri = Uri.parse(webAppUrl.trim());
-    final res = await _client
-        .post(
-          uri,
-          headers: {'Content-Type': 'text/plain; charset=utf-8'},
-          body: jsonEncode({
-            'username': username,
-            'password': password,
-            'action': 'saveSymptom',
-            'symptom': symptom.toJson(),
-          }),
-        )
-        .timeout(_timeout);
+    final res = await _post(
+      uri,
+      jsonEncode({'username': username, 'password': password, 'action': 'saveSymptom', 'symptom': symptom.toJson()}),
+    );
     _checkStatus(res);
     final map = _decodeJson(res.body);
     _checkOk(map, fallbackError: 'Gagal menyimpan gejala');
@@ -79,18 +64,10 @@ class SheetSymptomApi {
     required String symptomId,
   }) async {
     final uri = Uri.parse(webAppUrl.trim());
-    final res = await _client
-        .post(
-          uri,
-          headers: {'Content-Type': 'text/plain; charset=utf-8'},
-          body: jsonEncode({
-            'username': username,
-            'password': password,
-            'action': 'deleteSymptom',
-            'symptomId': symptomId,
-          }),
-        )
-        .timeout(_timeout);
+    final res = await _post(
+      uri,
+      jsonEncode({'username': username, 'password': password, 'action': 'deleteSymptom', 'symptomId': symptomId}),
+    );
     _checkStatus(res);
     final map = _decodeJson(res.body);
     _checkOk(map, fallbackError: 'Gagal menghapus gejala');
@@ -101,13 +78,10 @@ class SheetSymptomApi {
     required String password,
   }) async {
     final uri = Uri.parse(webAppUrl.trim());
-    final res = await _client
-        .post(
-          uri,
-          headers: {'Content-Type': 'text/plain; charset=utf-8'},
-          body: jsonEncode({'password': password, 'action': 'listDiagnosa'}),
-        )
-        .timeout(_timeout);
+    final res = await _post(
+      uri,
+      jsonEncode({'password': password, 'action': 'listDiagnosa'}),
+    );
     _checkStatus(res);
     final map = _decodeJson(res.body);
     _checkOk(map);
@@ -120,19 +94,44 @@ class SheetSymptomApi {
     required Map<String, dynamic> data,
   }) async {
     final uri = Uri.parse(webAppUrl.trim());
-    final res = await _client
-        .post(
-          uri,
-          headers: {'Content-Type': 'text/plain; charset=utf-8'},
-          body: jsonEncode({'action': 'saveDiagnosa', 'diagnosa': data}),
-        )
-        .timeout(_timeout);
+    final res = await _post(
+      uri,
+      jsonEncode({'action': 'saveDiagnosa', 'diagnosa': data}),
+    );
     _checkStatus(res);
     final map = _decodeJson(res.body);
     _checkOk(map, fallbackError: 'Gagal menyimpan hasil diagnosa');
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
+
+  /// POST ke GAS dengan penanganan redirect manual.
+  /// - Hop pertama: POST dengan body (agar doPost() terpanggil di GAS).
+  /// - Redirect 302/303: follow sebagai GET (echo URL GAS hanya terima GET).
+  /// - Redirect 307/308: follow tetap sebagai POST.
+  Future<http.Response> _post(Uri uri, String jsonBody) async {
+    Uri current = uri;
+    String? method = 'POST';
+    for (int hop = 0; hop < 5; hop++) {
+      final req = http.Request(method!, current)..followRedirects = false;
+      if (method == 'POST') {
+        req.headers['Content-Type'] = 'text/plain; charset=utf-8';
+        req.body = jsonBody;
+      }
+      final streamed = await _client.send(req).timeout(_timeout);
+      final res = await http.Response.fromStream(streamed);
+      if (res.statusCode >= 300 && res.statusCode < 400) {
+        final loc = res.headers['location'];
+        if (loc == null || loc.isEmpty) break;
+        current = current.resolve(loc);
+        // 307/308 pertahankan POST; 301/302/303 beralih ke GET
+        method = (res.statusCode == 307 || res.statusCode == 308) ? 'POST' : 'GET';
+        continue;
+      }
+      return res;
+    }
+    throw SheetApiException('Terlalu banyak redirect');
+  }
 
   void _checkStatus(http.Response res) {
     if (res.statusCode < 200 || res.statusCode >= 300) {
