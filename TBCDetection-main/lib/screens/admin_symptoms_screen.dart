@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/knowledge_base.dart';
+import '../services/download_helper.dart';
 import '../services/local_settings.dart';
 import '../services/symptom_repository.dart';
 import '../theme/app_theme.dart';
@@ -93,6 +94,32 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
     });
   }
 
+  void _downloadCsv() {
+    const headers =
+        'No,Timestamp,Kode Hasil,Judul Diagnosa,Nilai CF,Gejala Aktif';
+    final rows = _results.asMap().entries.map((e) {
+      final i = e.key + 1;
+      final d = e.value;
+      String esc(String v) =>
+          v.contains(',') || v.contains('"') || v.contains('\n')
+              ? '"${v.replaceAll('"', '""')}"'
+              : v;
+      return [
+        '$i',
+        esc(d['timestamp'] as String? ?? ''),
+        esc(d['id_user'] as String? ?? ''),
+        esc(d['hasil_utama_kode'] as String? ?? ''),
+        esc(d['hasil_utama_nilai_cf'] as String? ?? ''),
+        esc(d['detail_jawaban_json'] as String? ?? ''),
+      ].join(',');
+    });
+    final csv = '$headers\n${rows.join('\n')}';
+    final ts = DateTime.now();
+    final filename =
+        'hasil_diagnosa_${ts.year}${ts.month.toString().padLeft(2, '0')}${ts.day.toString().padLeft(2, '0')}.csv';
+    downloadCsvFile(csv, filename);
+  }
+
   Future<void> _refresh() async {
     final url = await _settings.getWebAppUrl();
     setState(() {
@@ -129,6 +156,11 @@ class _AdminSymptomsScreenState extends State<AdminSymptomsScreen> {
                   tooltip: 'Refresh',
                   icon: const Icon(Icons.refresh_rounded),
                   onPressed: _loading ? null : _refresh,
+                ),
+                IconButton(
+                  tooltip: 'Unduh CSV',
+                  icon: const Icon(Icons.download_rounded),
+                  onPressed: (_loading || _results.isEmpty) ? null : _downloadCsv,
                 ),
                 IconButton(
                   tooltip: 'Keluar',
