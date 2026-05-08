@@ -577,7 +577,7 @@ class _SymptomCard extends StatelessWidget {
                             ),
                             const SizedBox(width: 8),
                             Text(
-                              '${opt.label}  (${opt.value.toStringAsFixed(2)})',
+                              '${opt.label}  (${(opt.value * 100).toInt()}%)',
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: active
