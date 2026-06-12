@@ -1,10 +1,10 @@
 /**
  * Google Apps Script — TBC Detection Backend
  *
- * Sheet "Gejala"  : id | question | hint | sortOrder | active
- * Sheet "Diagnosa": timestamp | conclusion_id | conclusion_title | certainty | active_symptoms
- *
- * Script Properties: ADMIN_TOKEN = (kata sandi admin)
+ * Sheet "Gejala"        : id | question | hint | sortOrder | active
+ * Sheet "hasil_diagnosa": id_hasil | timestamp | id_user | hasil_utama_kode |
+ *                         hasil_utama_nilai_cf | detail_jawaban_json | rules_fired
+ * Sheet "Admin"         : username | password
  *
  * Deploy > Deployment baru > Jenis: Aplikasi web
  *   - Jalankan sebagai: Saya
@@ -77,24 +77,32 @@ function readSymptoms_(sh, activeOnly) {
   return out;
 }
 
-// ── Sheet Diagnosa ────────────────────────────────────────────────────────────
+// ── Sheet hasil_diagnosa ──────────────────────────────────────────────────────
 
 function ensureDiagnosaSheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ss.getSheetByName(DIAGNOSA_SHEET);
   if (!sh) {
     sh = ss.insertSheet(DIAGNOSA_SHEET);
-    sh.getRange(1, 1, 1, 6).setValues([
-      ['id_hasil', 'timestamp', 'id_user', 'hasil_utama_kode', 'hasil_utama_nilai_cf', 'detail_jawaban_json']
-    ]);
+    sh.getRange(1, 1, 1, 7).setValues([[
+      'id_hasil', 'timestamp', 'id_user',
+      'hasil_utama_kode', 'hasil_utama_nilai_cf',
+      'detail_jawaban_json', 'rules_fired'
+    ]]);
     sh.setFrozenRows(1);
+  } else {
+    // Tambah kolom rules_fired jika sheet lama belum punya
+    var header = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+    if (header.indexOf('rules_fired') < 0) {
+      sh.getRange(1, header.length + 1).setValue('rules_fired');
+    }
   }
   return sh;
 }
 
 function saveDiagnosa_(data) {
   var sh      = ensureDiagnosaSheet_();
-  var idHasil = sh.getLastRow();  // header=1, baris ke-2 → id=1, dst.
+  var idHasil = sh.getLastRow();
   sh.appendRow([
     idHasil,
     data.timestamp || new Date().toISOString(),
@@ -102,6 +110,7 @@ function saveDiagnosa_(data) {
     String(data.hasil_utama_kode || ''),
     String(data.hasil_utama_nilai_cf || ''),
     String(data.detail_jawaban_json || ''),
+    String(data.rules_fired || ''),
   ]);
   return jsonOut_({ ok: true });
 }
@@ -111,7 +120,7 @@ function listDiagnosa_() {
   var values = sh.getDataRange().getValues();
   if (values.length < 2) return [];
   var out = [];
-  for (var r = values.length - 1; r >= 1; r--) {  // terbaru di atas
+  for (var r = values.length - 1; r >= 1; r--) {
     var row = values[r];
     out.push({
       id_hasil:             String(row[0] || ''),
@@ -120,6 +129,7 @@ function listDiagnosa_() {
       hasil_utama_kode:     String(row[3] || ''),
       hasil_utama_nilai_cf: String(row[4] || ''),
       detail_jawaban_json:  String(row[5] || ''),
+      rules_fired:          String(row[6] || ''),
     });
   }
   return out;
@@ -143,11 +153,10 @@ function doPost(e) {
     }
     var body = JSON.parse(e.postData.contents);
 
-    // saveDiagnosa: tidak perlu auth (dipanggil dari device pengguna)
+    // Tidak perlu auth — dipanggil dari device pengguna
     if (body.action === 'saveDiagnosa') {
       return saveDiagnosa_(body.diagnosa || {});
     }
-
     // Semua aksi admin memerlukan auth
     if (!checkAuth_(body)) {
       return jsonOut_({ ok: false, error: 'Unauthorized' });

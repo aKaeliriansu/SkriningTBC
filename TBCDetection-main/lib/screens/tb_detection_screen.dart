@@ -76,13 +76,13 @@ class _TbDetectionScreenState extends State<TbDetectionScreen> {
     if (!mounted) return;
     setState(() => _running = false);
 
-    // Simpan hasil ke sheet (fire-and-forget)
     final diagnosaData = {
       'timestamp': DateTime.now().toIso8601String(),
       'id_user': result.conclusionId,
       'hasil_utama_kode': result.conclusion.title,
       'hasil_utama_nilai_cf': '${(result.certainty * 100).toStringAsFixed(1)}%',
       'detail_jawaban_json': result.activeSymptomIds.join(','),
+      'rules_fired': result.traces.map((t) => t.ruleId).join(','),
     };
     _repo.saveDiagnosaResult(diagnosaData).catchError((_) {});
 

@@ -1,6 +1,8 @@
 import '../data/knowledge_base.dart';
 import '../models/symptom_def.dart';
 
+// ─── Output types (tidak berubah — kompatibel dengan result_screen.dart) ──────
+
 class FiredRuleTrace {
   const FiredRuleTrace({
     required this.ruleId,
@@ -35,160 +37,158 @@ class InferenceResult {
   final List<String> activeSymptomIds;
 }
 
-/// Mesin forward chaining 10-rule dengan certainty factor (MYCIN combine).
-///
-/// Semua gejala bersifat opsional. Tidak ada gateway wajib.
-/// Gejala dikelompokkan berdasarkan CF Pakar:
-///   Respirasi Khas  (CF 0.8): KG2 (batuk kronis), KG3 (batuk berdarah)
-///   Sistemik Kuat   (CF 0.8): KG5 (demam malam), KG7 (keringat malam)
-///   Riwayat/Kontak  (CF 0.8): KG11 (keluarga TBC), KG13 (kontak TBC)
-///   Pendukung Sedang(CF 0.6): KG6 (nyeri dada), KG9 (BB turun), KG12 (riwayat TBC)
-///   Gejala Ringan   (CF 0.4): KG1 (batuk), KG4 (sesak), KG8 (nafsu makan), KG10 (lelah)
-///   Sangat Ringan   (CF 0.3): KG14 (imunisasi BCG)
-///
-/// Rumus CF evidence: CF_user × CF_pakar
-/// Rumus combine    : CF(A,B) = CF(A) + CF(B) × (1 − CF(A))
+// ─── Working Memory fact (internal) ──────────────────────────────────────────
+
+class _WMFact {
+  const _WMFact({required this.id, required this.type, required this.cf});
+
+  final String id;
+  final FactType type;
+  final double cf;
+
+  _WMFact withCf(double newCf) => _WMFact(id: id, type: type, cf: newCf);
+}
+
+// ─── Mesin Forward Chaining berbasis Working Memory ───────────────────────────
+//
+// Alur eksekusi:
+//   1. WM diinisialisasi dengan fakta gejala: CF_evidence = CF_user × CF_pakar.
+//   2. Agenda loop: iterasi seluruh kFCRules; setiap rule yang semua kondisinya
+//      ada di WM akan menyala dan menambah / memperbarui fakta baru ke WM.
+//      Setiap rule hanya menyala SATU KALI (dicatat di `fired`).
+//      Loop berhenti saat tidak ada rule baru yang menyala (fixed-point).
+//   3. Konklusi dipilih berdasarkan prioritas: P01 > P02 > P03.
+//
+// CF semantics:
+//   • AND (multi-kondisi) : premis = min(CF kondisi-kondisi)
+//   • OR                  : dimodelkan sebagai rule terpisah per gejala;
+//                           engine menggunakan MYCIN combine saat menulis ke
+//                           fakta yang sama lebih dari sekali.
+//   • Combine (MYCIN)     : CF(A,B) = CF_A + CF_B × (1 − CF_A)
 class ForwardChainingEngine {
   ForwardChainingEngine({this.activationThreshold = 0.05});
 
   final double activationThreshold;
 
-  static double combinePositive(double cf1, double cf2) =>
-      cf1 + cf2 * (1.0 - cf1);
+  static double _combine(double a, double b) => a + b * (1.0 - a);
+
+  static double _andCf(List<double> cfs) =>
+      cfs.reduce((a, b) => a < b ? a : b);
 
   InferenceResult run(
     Map<String, double> userSymptomCf, {
     List<SymptomDef>? symptoms,
   }) {
     final effectiveSymptoms = symptoms ?? kFallbackSymptoms;
+
+    // ── 1. Init WM dengan fakta gejala ──────────────────────────────────────
+    final wm = <String, _WMFact>{};
+    for (final sym in effectiveSymptoms) {
+      final userCf = userSymptomCf[sym.id] ?? 0.0;
+      if (userCf < activationThreshold) continue;
+      final evidenceCf = (userCf * sym.cfPakar).clamp(0.0, 1.0);
+      if (evidenceCf >= activationThreshold) {
+        wm[sym.id] = _WMFact(id: sym.id, type: FactType.symptom, cf: evidenceCf);
+      }
+    }
+
+    // ── 2. Agenda loop ───────────────────────────────────────────────────────
     final traces = <FiredRuleTrace>[];
+    final fired = <String>{};
+    bool changed = true;
 
-    // CF_evidence = CF_user × CF_pakar
-    double evidenceCf(String id) {
-      final userCf = userSymptomCf[id] ?? 0.0;
-      if (userCf < activationThreshold) return 0.0;
-      final sym = effectiveSymptoms.where((s) => s.id == id).firstOrNull;
-      return (userCf * (sym?.cfPakar ?? 0.5)).clamp(0.0, 1.0);
+    while (changed) {
+      changed = false;
+      for (final rule in kFCRules) {
+        if (fired.contains(rule.id)) continue;
+
+        // Kumpulkan CF kondisi; batalkan jika ada yang tidak terpenuhi
+        final condCfs = <double>[];
+        var allMet = true;
+        for (final cond in rule.conditions) {
+          final fact = wm[cond];
+          if (fact == null || fact.cf < activationThreshold) {
+            allMet = false;
+            break;
+          }
+          condCfs.add(fact.cf);
+        }
+        if (!allMet) continue;
+
+        // CF premis: min untuk AND; nilai tunggal untuk kondisi tunggal
+        final premiseCf = condCfs.length == 1
+            ? condCfs.first
+            : _andCf(condCfs);
+
+        // Tulis fakta ke WM: baru atau gabung MYCIN jika sudah ada
+        final existing = wm[rule.conclusionId];
+        final updatedCf = existing == null
+            ? premiseCf
+            : _combine(existing.cf, premiseCf);
+
+        wm[rule.conclusionId] = _WMFact(
+          id: rule.conclusionId,
+          type: rule.conclusionType,
+          cf: updatedCf,
+        );
+
+        fired.add(rule.id);
+        changed = true;
+
+        traces.add(FiredRuleTrace(
+          ruleId: rule.id,
+          conclusionId: rule.conclusionId,
+          cfPremise: premiseCf,
+          cfAfterExpert: updatedCf,
+          description: rule.description ??
+              'IF ${rule.conditions.join(' ∧ ')} THEN ${rule.conclusionId} '
+              '(CF_premis=${premiseCf.toStringAsFixed(2)}, '
+              'CF_hasil=${updatedCf.toStringAsFixed(2)})',
+        ));
+      }
     }
 
-    // Kumpulkan semua gejala aktif
-    final active = <String, double>{};
-    for (final s in effectiveSymptoms) {
-      final cf = evidenceCf(s.id);
-      if (cf >= activationThreshold) active[s.id] = cf;
-    }
-    final activeIds = active.keys.toList();
+    // ── 3. Pilih konklusi berprioritas P01 > P02 > P03 ──────────────────────
+    String conclusionId = 'P03';
+    double certainty = 0.0;
 
-    // CF gabungan seluruh gejala aktif (MYCIN sequential combine)
-    double cfTotal = 0.0;
-    for (final cf in active.values) {
-      cfTotal = combinePositive(cfTotal, cf);
-    }
-
-    // Helper: tambah trace dan kembalikan hasil
-    InferenceResult decide(String ruleId, String conclusionId, String desc) {
-      traces.add(FiredRuleTrace(
-        ruleId: ruleId,
-        conclusionId: conclusionId,
-        cfPremise: cfTotal,
-        cfAfterExpert: cfTotal,
-        description: desc,
-      ));
-      return _build(conclusionId, cfTotal, traces, {conclusionId: cfTotal}, activeIds);
+    for (final p in const ['P01', 'P02']) {
+      final fact = wm[p];
+      if (fact != null && fact.cf >= activationThreshold) {
+        conclusionId = p;
+        certainty = fact.cf;
+        break;
+      }
     }
 
-    bool has(String id) => active.containsKey(id);
-    bool hasAnyOf(List<String> ids) => ids.any(has);
-
-    // Klasifikasi kelompok berdasarkan CF Pakar
-    final hasRespStrong = hasAnyOf(['KG2', 'KG3']);         // Batuk kronis / berdarah
-    final hasSysStrong  = hasAnyOf(['KG5', 'KG7']);         // Demam malam / keringat malam
-    final hasExpStrong  = hasAnyOf(['KG11', 'KG13']);        // Riwayat keluarga / kontak TBC
-    final hasMedium     = hasAnyOf(['KG6', 'KG9', 'KG12']); // Nyeri dada / BB turun / riwayat TBC
-    final weakSet       = {'KG1', 'KG4', 'KG8', 'KG10', 'KG14'};
-    final hasWeakOnly   = active.keys.every(weakSet.contains);
-
-    // ── R1: Tidak ada gejala aktif ──────────────────────────────────────────
-    if (active.isEmpty) {
-      return decide('R1', 'P03', 'R1: Tidak ada gejala aktif → Bukan TBC');
+    if (conclusionId == 'P03') {
+      // Tidak ada P01/P02 → P03 sebagai default.
+      // CF P03: gabungan seluruh gejala aktif (menunjukkan seberapa banyak
+      // gejala yang dilaporkan, meskipun tidak memenuhi pola TBC).
+      double fallbackCf = 0.0;
+      for (final f in wm.values.where((f) => f.type == FactType.symptom)) {
+        fallbackCf = _combine(fallbackCf, f.cf);
+      }
+      certainty = wm['P03']?.cf ?? fallbackCf;
     }
 
-    // ── R2: Hanya gejala ringan (CF_pakar ≤ 0.4) ───────────────────────────
-    if (hasWeakOnly) {
-      return decide('R2', 'P03',
-          'R2: Hanya gejala umum ringan aktif (${activeIds.join(", ")}) → Bukan TBC, CF=${cfTotal.toStringAsFixed(2)}');
-    }
+    final activeIds = wm.values
+        .where((f) => f.type == FactType.symptom)
+        .map((f) => f.id)
+        .toList();
 
-    // ── P01: Rules prioritas tinggi ─────────────────────────────────────────
+    final allScores = <String, double>{
+      'P01': wm['P01']?.cf ?? 0.0,
+      'P02': wm['P02']?.cf ?? 0.0,
+      'P03': conclusionId == 'P03' ? certainty : (wm['P03']?.cf ?? 0.0),
+    };
 
-    // R10: Respirasi khas + Sistemik kuat + Riwayat/Kontak kuat
-    if (hasRespStrong && hasSysStrong && hasExpStrong) {
-      return decide('R10', 'P01',
-          'R10: Respirasi khas + sistemik kuat + riwayat/kontak → Positif TBC, CF=${cfTotal.toStringAsFixed(2)}');
-    }
-
-    // R9: Respirasi khas + Sistemik kuat
-    if (hasRespStrong && hasSysStrong) {
-      return decide('R9', 'P01',
-          'R9: Respirasi khas (KG2/KG3) + sistemik kuat (KG5/KG7) → Positif TBC, CF=${cfTotal.toStringAsFixed(2)}');
-    }
-
-    // R8: Respirasi khas + gejala pendukung sedang atau riwayat/kontak kuat
-    if (hasRespStrong && (hasMedium || hasExpStrong)) {
-      return decide('R8', 'P01',
-          'R8: Respirasi khas + pendukung sedang/riwayat → Positif TBC, CF=${cfTotal.toStringAsFixed(2)}');
-    }
-
-    // R7: Sistemik kuat + Riwayat/Kontak kuat (tanpa respirasi khas)
-    if (hasSysStrong && hasExpStrong) {
-      return decide('R7', 'P01',
-          'R7: Sistemik kuat + riwayat/kontak kuat (tanpa respirasi khas) → Positif TBC, CF=${cfTotal.toStringAsFixed(2)}');
-    }
-
-    // ── P02: Rules mungkin TBC ──────────────────────────────────────────────
-
-    // R6: Respirasi khas saja (tanpa pendukung kuat lain)
-    if (hasRespStrong) {
-      return decide('R6', 'P02',
-          'R6: Respirasi khas tanpa pendukung kuat → Mungkin TBC, CF=${cfTotal.toStringAsFixed(2)}');
-    }
-
-    // R5: Sistemik kuat tanpa respirasi khas
-    if (hasSysStrong) {
-      return decide('R5', 'P02',
-          'R5: Sistemik kuat tanpa respirasi khas → Mungkin TBC, CF=${cfTotal.toStringAsFixed(2)}');
-    }
-
-    // R4: Riwayat/kontak kuat tanpa tanda klinis khas
-    if (hasExpStrong) {
-      return decide('R4', 'P02',
-          'R4: Riwayat/kontak kuat tanpa tanda klinis khas → Mungkin TBC, CF=${cfTotal.toStringAsFixed(2)}');
-    }
-
-    // R3: Gejala pendukung sedang saja (KG6/KG9/KG12)
-    if (hasMedium) {
-      return decide('R3', 'P02',
-          'R3: Gejala pendukung sedang tanpa tanda khas → Mungkin TBC, CF=${cfTotal.toStringAsFixed(2)}');
-    }
-
-    // Fallback (logically unreachable setelah R2 menangkap hasWeakOnly)
-    return decide('R2', 'P03', 'R2: Gejala tidak memenuhi kriteria skrining → Bukan TBC');
-  }
-
-  InferenceResult _build(
-    String id,
-    double cf,
-    List<FiredRuleTrace> traces,
-    Map<String, double> scores,
-    List<String> activeIds,
-  ) {
-    final conclusion = kConclusions[id] ?? kDefaultConclusion;
     return InferenceResult(
-      conclusionId: id,
-      conclusion: conclusion,
-      certainty: cf.clamp(0.0, 1.0),
+      conclusionId: conclusionId,
+      conclusion: kConclusions[conclusionId] ?? kDefaultConclusion,
+      certainty: certainty.clamp(0.0, 1.0),
       traces: List.unmodifiable(traces),
-      allConclusionScores: Map.unmodifiable(scores),
+      allConclusionScores: Map.unmodifiable(allScores),
       activeSymptomIds: List.unmodifiable(activeIds),
     );
   }

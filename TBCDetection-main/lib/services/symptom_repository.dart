@@ -15,6 +15,18 @@ class SymptomRepository {
   final SheetSymptomApi _api;
   final LocalSettings _settings;
 
+  // Ganti cfPakar default (0.5) dengan nilai pakar dari kFallbackSymptoms.
+  // Sheet tidak mengirim cfPakar, sehingga tanpa ini semua gejala bernilai 0.5.
+  static final _fallbackCf = {
+    for (final s in kFallbackSymptoms) s.id: s.cfPakar
+  };
+
+  List<SymptomDef> _applyExpertCf(List<SymptomDef> list) => list
+      .map((s) => s.cfPakar != 0.5
+          ? s
+          : s.copyWith(cfPakar: _fallbackCf[s.id] ?? 0.5))
+      .toList();
+
   List<SymptomDef> _sortedActive(List<SymptomDef> list) {
     final copy = list.where((s) => s.active && s.id.isNotEmpty).toList();
     copy.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
@@ -29,7 +41,7 @@ class SymptomRepository {
       if (cached != null && cached.isNotEmpty) {
         try {
           final list = _decodeList(cached);
-          if (list.isNotEmpty) return _sortedActive(list);
+          if (list.isNotEmpty) return _sortedActive(_applyExpertCf(list));
         } catch (_) {}
       }
     }
@@ -40,14 +52,14 @@ class SymptomRepository {
         await _settings.setCachedSymptomsJson(
           jsonEncode(fresh.map((e) => e.toJson()).toList()),
         );
-        return fresh;
+        return _sortedActive(_applyExpertCf(fresh));
       }
     } catch (_) {
       final cached = await _settings.getCachedSymptomsJson();
       if (cached != null && cached.isNotEmpty) {
         try {
           final list = _decodeList(cached);
-          if (list.isNotEmpty) return _sortedActive(list);
+          if (list.isNotEmpty) return _sortedActive(_applyExpertCf(list));
         } catch (_) {}
       }
     }

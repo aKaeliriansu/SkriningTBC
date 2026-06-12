@@ -1,37 +1,265 @@
 import '../models/symptom_def.dart';
 
-class ExpertRule {
-  const ExpertRule({
+// ─── Fact hierarchy ───────────────────────────────────────────────────────────
+
+enum FactType { symptom, cluster, pattern, diagnosis }
+
+// ─── Production rule ──────────────────────────────────────────────────────────
+
+class FCRule {
+  const FCRule({
     required this.id,
-    required this.requiredIds,
+    required this.conditions,
     required this.conclusionId,
-    required this.cfExpert,
+    required this.conclusionType,
     this.description,
   });
 
+  /// Semua kondisi harus ada di Working Memory (AND semantics).
+  /// OR dimodelkan sebagai rule terpisah per gejala yang mengarah ke fakta yang sama.
   final String id;
-  final List<String> requiredIds;
+  final List<String> conditions;
   final String conclusionId;
-  final double cfExpert;
+  final FactType conclusionType;
   final String? description;
 }
 
-class ConclusionDef {
-  const ConclusionDef({
-    required this.id,
-    required this.title,
-    required this.body,
-    required this.action,
-  });
+// ─── Aturan forward chaining 3-layer ─────────────────────────────────────────
+//
+// Layer 1  Gejala (symptom) → Klaster (cluster)
+//   Satu gejala → satu klaster. Beberapa rule bisa menulis ke klaster yang sama;
+//   engine menggabungkan CF-nya dengan rumus MYCIN combine.
+//
+// Layer 2  Klaster → Pola (pattern)
+//   Dua atau tiga klaster aktif → pola baru ditambahkan ke WM.
+//   CF pola = min(CF_klaster_a, CF_klaster_b)  [AND semantics].
+//
+// Layer 3  Pola / Klaster → Diagnosa (diagnosis)
+//   Rule mengarah ke P01 atau P02.
+//   Jika tidak ada P01/P02 di WM → mesin mengembalikan P03 sebagai default.
 
-  final String id;
-  final String title;
-  final String body;
-  final String action;
-}
+const List<FCRule> kFCRules = [
+  // ── Layer 1: Gejala → Klaster ─────────────────────────────────────────────
+
+  // Respirasi Khas (CF Pakar 0.8)
+  FCRule(
+    id: 'L1_RESP_1',
+    conditions: ['KG2'],
+    conclusionId: 'RESP_STRONG',
+    conclusionType: FactType.cluster,
+    description: 'IF KG2 (Batuk >2 Minggu) THEN RESP_STRONG',
+  ),
+  FCRule(
+    id: 'L1_RESP_2',
+    conditions: ['KG3'],
+    conclusionId: 'RESP_STRONG',
+    conclusionType: FactType.cluster,
+    description: 'IF KG3 (Batuk Berdarah) THEN RESP_STRONG',
+  ),
+
+  // Sistemik Kuat (CF Pakar 0.8)
+  FCRule(
+    id: 'L1_SYS_1',
+    conditions: ['KG5'],
+    conclusionId: 'SYS_STRONG',
+    conclusionType: FactType.cluster,
+    description: 'IF KG5 (Demam Malam) THEN SYS_STRONG',
+  ),
+  FCRule(
+    id: 'L1_SYS_2',
+    conditions: ['KG7'],
+    conclusionId: 'SYS_STRONG',
+    conclusionType: FactType.cluster,
+    description: 'IF KG7 (Keringat Malam) THEN SYS_STRONG',
+  ),
+
+  // Riwayat / Kontak (CF Pakar 0.8)
+  FCRule(
+    id: 'L1_EXP_1',
+    conditions: ['KG11'],
+    conclusionId: 'EXP_STRONG',
+    conclusionType: FactType.cluster,
+    description: 'IF KG11 (Riwayat TBC Keluarga) THEN EXP_STRONG',
+  ),
+  FCRule(
+    id: 'L1_EXP_2',
+    conditions: ['KG13'],
+    conclusionId: 'EXP_STRONG',
+    conclusionType: FactType.cluster,
+    description: 'IF KG13 (Kontak Positif TBC) THEN EXP_STRONG',
+  ),
+
+  // Pendukung Sedang (CF Pakar 0.6)
+  FCRule(
+    id: 'L1_MED_1',
+    conditions: ['KG6'],
+    conclusionId: 'SUPPORT_MED',
+    conclusionType: FactType.cluster,
+    description: 'IF KG6 (Nyeri Dada) THEN SUPPORT_MED',
+  ),
+  FCRule(
+    id: 'L1_MED_2',
+    conditions: ['KG9'],
+    conclusionId: 'SUPPORT_MED',
+    conclusionType: FactType.cluster,
+    description: 'IF KG9 (Penurunan Berat Badan) THEN SUPPORT_MED',
+  ),
+  FCRule(
+    id: 'L1_MED_3',
+    conditions: ['KG12'],
+    conclusionId: 'SUPPORT_MED',
+    conclusionType: FactType.cluster,
+    description: 'IF KG12 (Riwayat Terkena TBC) THEN SUPPORT_MED',
+  ),
+
+  // Gejala Ringan (CF Pakar 0.3–0.4)
+  FCRule(
+    id: 'L1_WEAK_1',
+    conditions: ['KG1'],
+    conclusionId: 'WEAK_SYM',
+    conclusionType: FactType.cluster,
+    description: 'IF KG1 (Batuk Berdahak) THEN WEAK_SYM',
+  ),
+  FCRule(
+    id: 'L1_WEAK_2',
+    conditions: ['KG4'],
+    conclusionId: 'WEAK_SYM',
+    conclusionType: FactType.cluster,
+    description: 'IF KG4 (Sesak Napas) THEN WEAK_SYM',
+  ),
+  FCRule(
+    id: 'L1_WEAK_3',
+    conditions: ['KG8'],
+    conclusionId: 'WEAK_SYM',
+    conclusionType: FactType.cluster,
+    description: 'IF KG8 (Nafsu Makan Menurun) THEN WEAK_SYM',
+  ),
+  FCRule(
+    id: 'L1_WEAK_4',
+    conditions: ['KG10'],
+    conclusionId: 'WEAK_SYM',
+    conclusionType: FactType.cluster,
+    description: 'IF KG10 (Malaise/Kelelahan) THEN WEAK_SYM',
+  ),
+  FCRule(
+    id: 'L1_WEAK_5',
+    conditions: ['KG14'],
+    conclusionId: 'WEAK_SYM',
+    conclusionType: FactType.cluster,
+    description: 'IF KG14 (Riwayat BCG) THEN WEAK_SYM',
+  ),
+
+  // ── Layer 2: Klaster → Pola ───────────────────────────────────────────────
+
+  FCRule(
+    id: 'L2_PAT_1',
+    conditions: ['RESP_STRONG', 'SYS_STRONG'],
+    conclusionId: 'PAT_RESP_SYS',
+    conclusionType: FactType.pattern,
+    description: 'IF RESP_STRONG ∧ SYS_STRONG THEN PAT_RESP_SYS (Respirasi + Sistemik)',
+  ),
+  FCRule(
+    id: 'L2_PAT_2',
+    conditions: ['RESP_STRONG', 'EXP_STRONG'],
+    conclusionId: 'PAT_RESP_EXP',
+    conclusionType: FactType.pattern,
+    description: 'IF RESP_STRONG ∧ EXP_STRONG THEN PAT_RESP_EXP (Respirasi + Riwayat)',
+  ),
+  FCRule(
+    id: 'L2_PAT_3',
+    conditions: ['RESP_STRONG', 'SUPPORT_MED'],
+    conclusionId: 'PAT_RESP_MED',
+    conclusionType: FactType.pattern,
+    description: 'IF RESP_STRONG ∧ SUPPORT_MED THEN PAT_RESP_MED (Respirasi + Pendukung)',
+  ),
+  FCRule(
+    id: 'L2_PAT_4',
+    conditions: ['SYS_STRONG', 'EXP_STRONG'],
+    conclusionId: 'PAT_SYS_EXP',
+    conclusionType: FactType.pattern,
+    description: 'IF SYS_STRONG ∧ EXP_STRONG THEN PAT_SYS_EXP (Sistemik + Riwayat)',
+  ),
+
+  // Pola komposit: RESP + SYS + EXP (fakta PAT_RESP_SYS sudah harus ada)
+  FCRule(
+    id: 'L2_PAT_5',
+    conditions: ['PAT_RESP_SYS', 'EXP_STRONG'],
+    conclusionId: 'PAT_FULL',
+    conclusionType: FactType.pattern,
+    description: 'IF PAT_RESP_SYS ∧ EXP_STRONG THEN PAT_FULL (Respirasi + Sistemik + Riwayat)',
+  ),
+
+  // ── Layer 3: Pola / Klaster → Diagnosa ───────────────────────────────────
+
+  // P01 — Positif TBC
+  FCRule(
+    id: 'L3_P01_1',
+    conditions: ['PAT_FULL'],
+    conclusionId: 'P01',
+    conclusionType: FactType.diagnosis,
+    description: 'IF PAT_FULL (3 klaster kuat) THEN P01 — Positif TBC (keyakinan tertinggi)',
+  ),
+  FCRule(
+    id: 'L3_P01_2',
+    conditions: ['PAT_RESP_SYS'],
+    conclusionId: 'P01',
+    conclusionType: FactType.diagnosis,
+    description: 'IF PAT_RESP_SYS (Respirasi + Sistemik) THEN P01 — Positif TBC',
+  ),
+  FCRule(
+    id: 'L3_P01_3',
+    conditions: ['PAT_RESP_EXP'],
+    conclusionId: 'P01',
+    conclusionType: FactType.diagnosis,
+    description: 'IF PAT_RESP_EXP (Respirasi + Riwayat/Kontak) THEN P01 — Positif TBC',
+  ),
+  FCRule(
+    id: 'L3_P01_4',
+    conditions: ['PAT_RESP_MED'],
+    conclusionId: 'P01',
+    conclusionType: FactType.diagnosis,
+    description: 'IF PAT_RESP_MED (Respirasi + Pendukung Sedang) THEN P01 — Positif TBC',
+  ),
+  FCRule(
+    id: 'L3_P01_5',
+    conditions: ['PAT_SYS_EXP'],
+    conclusionId: 'P01',
+    conclusionType: FactType.diagnosis,
+    description: 'IF PAT_SYS_EXP (Sistemik + Riwayat/Kontak) THEN P01 — Positif TBC',
+  ),
+
+  // P02 — Mungkin TBC
+  FCRule(
+    id: 'L3_P02_1',
+    conditions: ['RESP_STRONG'],
+    conclusionId: 'P02',
+    conclusionType: FactType.diagnosis,
+    description: 'IF RESP_STRONG (Respirasi Khas saja) THEN P02 — Mungkin TBC',
+  ),
+  FCRule(
+    id: 'L3_P02_2',
+    conditions: ['SYS_STRONG'],
+    conclusionId: 'P02',
+    conclusionType: FactType.diagnosis,
+    description: 'IF SYS_STRONG (Sistemik Kuat saja) THEN P02 — Mungkin TBC',
+  ),
+  FCRule(
+    id: 'L3_P02_3',
+    conditions: ['EXP_STRONG'],
+    conclusionId: 'P02',
+    conclusionType: FactType.diagnosis,
+    description: 'IF EXP_STRONG (Riwayat/Kontak saja) THEN P02 — Mungkin TBC',
+  ),
+  FCRule(
+    id: 'L3_P02_4',
+    conditions: ['SUPPORT_MED'],
+    conclusionId: 'P02',
+    conclusionType: FactType.diagnosis,
+    description: 'IF SUPPORT_MED (Pendukung Sedang saja) THEN P02 — Mungkin TBC',
+  ),
+];
 
 // ─── Fallback gejala (dipakai jika Spreadsheet belum dikonfigurasi) ───────────
-// Data sesuai tabel: kode_gejala, nama_gejala, pertanyaan, CF Pakar, aktif
 
 const List<SymptomDef> kFallbackSymptoms = [
   // ── Gejala Utama (KG1–KG3) ──────────────────────────────────────────────
@@ -151,111 +379,21 @@ const List<SymptomDef> kFallbackSymptoms = [
   ),
 ];
 
-// ─── Aturan forward chaining (dokumentasi) ────────────────────────────────────
-// Engine menggunakan if-else berprioritas, bukan iterasi kRules. Daftar ini
-// untuk referensi dokumentasi dan pengisian rule_forward_chaining di database.
-//
-// Semua gejala bersifat opsional — tidak ada gateway wajib.
-// CF_evidence(KGn) = CF_user × CF_pakar_n
-// CF_combine(A,B)  = CF(A) + CF(B) × (1 − CF(A))
-// CF_total         = combine berurutan seluruh gejala aktif
-//
-// Kelompok gejala berdasarkan CF Pakar:
-//   Respirasi Khas   (0.8) : KG2 batuk kronis, KG3 batuk berdarah
-//   Sistemik Kuat    (0.8) : KG5 demam malam, KG7 keringat malam
-//   Riwayat/Kontak   (0.8) : KG11 keluarga TBC, KG13 kontak TBC
-//   Pendukung Sedang (0.6) : KG6 nyeri dada, KG9 penurunan BB, KG12 riwayat TBC
-//   Gejala Ringan    (0.4) : KG1 batuk, KG4 sesak, KG8 nafsu makan, KG10 lelah
-//   Sangat Ringan    (0.3) : KG14 imunisasi BCG
-
-const List<ExpertRule> kRules = [
-  // ── P03: Bukan TBC ─────────────────────────────────────────────────────────
-  ExpertRule(
-    id: 'R1',
-    requiredIds: [],
-    conclusionId: 'P03',
-    cfExpert: 0.0,
-    description: 'Tidak ada gejala aktif → P03 Bukan TBC. CF = 0.',
-  ),
-  ExpertRule(
-    id: 'R2',
-    requiredIds: [],
-    conclusionId: 'P03',
-    cfExpert: 0.0,
-    description: 'Hanya gejala ringan (CF_pakar ≤ 0.4) aktif: subset {KG1, KG4, KG8, KG10, KG14} '
-        '→ P03 Bukan TBC. CF = combine(gejala ringan aktif).',
-  ),
-
-  // ── P02: Mungkin TBC ───────────────────────────────────────────────────────
-  ExpertRule(
-    id: 'R3',
-    requiredIds: ['KG6/KG9/KG12'],
-    conclusionId: 'P02',
-    cfExpert: 0.0,
-    description: 'Gejala pendukung sedang (KG6/KG9/KG12, CF_pakar 0.6) aktif '
-        'tanpa tanda khas TBC → P02 Mungkin TBC. CF = combine(gejala sedang aktif).',
-  ),
-  ExpertRule(
-    id: 'R4',
-    requiredIds: ['KG11/KG13'],
-    conclusionId: 'P02',
-    cfExpert: 0.0,
-    description: 'Riwayat/kontak kuat (KG11 atau KG13, CF_pakar 0.8) aktif '
-        'tanpa respirasi khas dan tanpa sistemik kuat → P02 Mungkin TBC.',
-  ),
-  ExpertRule(
-    id: 'R5',
-    requiredIds: ['KG5/KG7'],
-    conclusionId: 'P02',
-    cfExpert: 0.0,
-    description: 'Sistemik kuat (KG5 atau KG7, CF_pakar 0.8) aktif '
-        'tanpa respirasi khas → P02 Mungkin TBC. CF = combine(gejala aktif).',
-  ),
-  ExpertRule(
-    id: 'R6',
-    requiredIds: ['KG2/KG3'],
-    conclusionId: 'P02',
-    cfExpert: 0.0,
-    description: 'Respirasi khas (KG2 atau KG3, CF_pakar 0.8) aktif '
-        'tanpa sistemik kuat/pendukung signifikan → P02 Mungkin TBC.',
-  ),
-
-  // ── P01: Positif TBC ───────────────────────────────────────────────────────
-  ExpertRule(
-    id: 'R7',
-    requiredIds: ['KG5/KG7', 'KG11/KG13'],
-    conclusionId: 'P01',
-    cfExpert: 0.0,
-    description: 'Sistemik kuat (KG5/KG7) DAN riwayat/kontak kuat (KG11/KG13) '
-        'aktif tanpa respirasi khas → P01 Positif TBC. CF = combine(semua aktif).',
-  ),
-  ExpertRule(
-    id: 'R8',
-    requiredIds: ['KG2/KG3', 'KG6/KG9/KG12_atau_KG11/KG13'],
-    conclusionId: 'P01',
-    cfExpert: 0.0,
-    description: 'Respirasi khas (KG2/KG3) DAN pendukung sedang (KG6/KG9/KG12) '
-        'atau riwayat/kontak kuat → P01 Positif TBC. CF = combine(semua aktif).',
-  ),
-  ExpertRule(
-    id: 'R9',
-    requiredIds: ['KG2/KG3', 'KG5/KG7'],
-    conclusionId: 'P01',
-    cfExpert: 0.0,
-    description: 'Respirasi khas (KG2/KG3) DAN sistemik kuat (KG5/KG7) '
-        '→ P01 Positif TBC. CF = combine(semua aktif).',
-  ),
-  ExpertRule(
-    id: 'R10',
-    requiredIds: ['KG2/KG3', 'KG5/KG7', 'KG11/KG13'],
-    conclusionId: 'P01',
-    cfExpert: 0.0,
-    description: 'Respirasi khas DAN sistemik kuat DAN riwayat/kontak kuat '
-        '→ P01 Positif TBC dengan keyakinan tertinggi. CF = combine(semua aktif).',
-  ),
-];
-
 // ─── Kesimpulan diagnosa ──────────────────────────────────────────────────────
+
+class ConclusionDef {
+  const ConclusionDef({
+    required this.id,
+    required this.title,
+    required this.body,
+    required this.action,
+  });
+
+  final String id;
+  final String title;
+  final String body;
+  final String action;
+}
 
 const Map<String, ConclusionDef> kConclusions = {
   'P01': ConclusionDef(
