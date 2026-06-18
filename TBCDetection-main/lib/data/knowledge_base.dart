@@ -220,14 +220,6 @@ const List<FCRule> kFCRules = [
     conclusionType: FactType.diagnosis,
     description: 'IF PAT_RESP_MED (Respirasi + Pendukung Sedang) THEN P01 — Positif TBC',
   ),
-  FCRule(
-    id: 'L3_P01_5',
-    conditions: ['PAT_SYS_EXP'],
-    conclusionId: 'P01',
-    conclusionType: FactType.diagnosis,
-    description: 'IF PAT_SYS_EXP (Sistemik + Riwayat/Kontak) THEN P01 — Positif TBC',
-  ),
-
   // P02 — Mungkin TBC
   FCRule(
     id: 'L3_P02_1',
@@ -256,6 +248,13 @@ const List<FCRule> kFCRules = [
     conclusionId: 'P02',
     conclusionType: FactType.diagnosis,
     description: 'IF SUPPORT_MED (Pendukung Sedang saja) THEN P02 — Mungkin TBC',
+  ),
+  FCRule(
+    id: 'L3_P02_5',
+    conditions: ['PAT_SYS_EXP'],
+    conclusionId: 'P02',
+    conclusionType: FactType.diagnosis,
+    description: 'IF PAT_SYS_EXP (Sistemik + Riwayat/Kontak) THEN P02 — Mungkin TBC',
   ),
 ];
 
